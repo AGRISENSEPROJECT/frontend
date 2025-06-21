@@ -86,11 +86,10 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                 <ScrollView style={styles.menuContainer} className='mt-5' >
                     {menuItems.map((item, index) => (
                         <Pressable
-                            className={`flex p-2 flex-row items-center mb-2 gap-3 mx-2 rounded-lg ${
-                                activeRoute === item.route
-                                ? 'bg-[#0B4D26]'
-                                : 'hover:bg-gray-100'
-                            }`}
+                            className={`flex p-2 flex-row items-center mb-2 gap-3 mx-2 rounded-lg ${activeRoute === item.route
+                                    ? 'bg-[#0B4D26]'
+                                    : 'hover:bg-gray-100'
+                                }`}
                             key={index}
                             onPress={() => {
                                 setActiveRoute(item.route);
@@ -103,11 +102,10 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                                 size={24}
                                 color={activeRoute === item.route ? '#ffffff' : '#4B5563'}
                             />
-                            <Text className={`${
-                                activeRoute === item.route
-                                ? 'text-white font-medium'
-                                : 'text-gray-600'
-                            }`}>
+                            <Text className={`${activeRoute === item.route
+                                    ? 'text-white font-medium'
+                                    : 'text-gray-600'
+                                }`}>
                                 {item.label}
                             </Text>
                         </Pressable>

@@ -125,7 +125,7 @@ export default function Signup() {
                         <TextInput
                             placeholder="Email address"
                             value={formData.email}
-                            onChangeText={(text) => setFormData({...formData, email: text})}
+                            onChangeText={(text) => setFormData({ ...formData, email: text })}
                             className="bg-gray-100 p-4 mb-4 rounded-lg"
                             keyboardType="email-address"
                         />
@@ -136,7 +136,7 @@ export default function Signup() {
                         <TextInput
                             placeholder="Username"
                             value={formData.username}
-                            onChangeText={(text) => setFormData({...formData, username: text})}
+                            onChangeText={(text) => setFormData({ ...formData, username: text })}
                             className="bg-gray-100 mb-4 p-4 rounded-lg"
                         />
                         {errors.username ? <Text className="text-red-500 text-sm mt-1">{errors.username}</Text> : null}
@@ -146,7 +146,7 @@ export default function Signup() {
                         <TextInput
                             placeholder="Password"
                             value={formData.password}
-                            onChangeText={(text) => setFormData({...formData, password: text})}
+                            onChangeText={(text) => setFormData({ ...formData, password: text })}
                             secureTextEntry={!showPassword}
                             className="bg-gray-100 p-4 mb-4 rounded-lg"
                         />
@@ -163,7 +163,7 @@ export default function Signup() {
                         <TextInput
                             placeholder="Confirm password"
                             value={formData.confirmPassword}
-                            onChangeText={(text) => setFormData({...formData, confirmPassword: text})}
+                            onChangeText={(text) => setFormData({ ...formData, confirmPassword: text })}
                             secureTextEntry={!showConfirmPassword}
                             className="bg-gray-100 mb-4 p-4 rounded-lg"
                         />

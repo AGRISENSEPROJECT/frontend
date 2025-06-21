@@ -20,7 +20,7 @@ export default function SignIn() {
     const validateForm = () => {
         const newErrors = {
             email: !formData.email ? 'Email is required' :
-                  !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email) ? 'Invalid email format' : '',
+                !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email) ? 'Invalid email format' : '',
             password: !formData.password ? 'Password is required' : '',
         };
 
@@ -99,7 +99,7 @@ export default function SignIn() {
                         <TextInput
                             placeholder="Email address"
                             value={formData.email}
-                            onChangeText={(text) => setFormData({...formData, email: text})}
+                            onChangeText={(text) => setFormData({ ...formData, email: text })}
                             className={`bg-gray-100 mb-4 p-4 rounded-lg ${errors.email ? 'border-red-500 border' : ''}`}
                             keyboardType="email-address"
                         />
@@ -110,7 +110,7 @@ export default function SignIn() {
                         <TextInput
                             placeholder="Password"
                             value={formData.password}
-                            onChangeText={(text) => setFormData({...formData, password: text})}
+                            onChangeText={(text) => setFormData({ ...formData, password: text })}
                             secureTextEntry={!showPassword}
                             className={`bg-gray-100 p-4 mb-4 rounded-lg ${errors.password ? 'border-red-500 border' : ''}`}
                         />

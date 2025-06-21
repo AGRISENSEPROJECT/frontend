@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Geolocation from 'react-native-geolocation-service';
 import { useSidebar } from '../context/SidebarContext';
+import { router } from 'expo-router';
 
 
 export default function Dashboard() {
@@ -77,13 +78,20 @@ export default function Dashboard() {
                             <Ionicons name="menu-outline" size={24} color="white" />
                         </TouchableOpacity>
                         <View>
-
                             <View className="flex-row items-center">
                                 <Ionicons name="location-outline" size={20} color="white" style={{ marginRight: 5 }} />
                                 <Text className="text-white">{location}</Text>
                             </View>
                         </View>
-                        <Ionicons name="notifications-outline" size={24} color="white" />
+                        <View className="flex-row items-center space-x-4">
+                            <TouchableOpacity
+                                onPress={() => router.push('/(main)/camera')}
+                                className="bg-white/20 p-2 rounded-full"
+                            >
+                                <Ionicons name="camera" size={20} color="white" />
+                            </TouchableOpacity>
+                            <Ionicons name="notifications-outline" size={24} color="white" />
+                        </View>
                     </View>
 
                     {/* Search Bar */}
