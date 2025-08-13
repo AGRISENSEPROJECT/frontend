@@ -5,12 +5,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { Slot, useRouter, Stack, usePathname } from 'expo-router';
 import Sidebar from '../components/Sidebar';
 import '../../global.css';
-import { SidebarContext } from '../context/SidebarContext';
+import { SidebarProvider, useSidebar } from '../context/SidebarContext';
 
-export default function MainLayout() {
+function MainLayoutContent() {
     const router = useRouter();
     const pathname = usePathname();
-    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const { isSidebarOpen, toggleSidebar } = useSidebar();
 
     // Bottom navigation handler
     const handleNavigation = (route: string) => {
@@ -29,10 +29,8 @@ export default function MainLayout() {
         }
     };
 
-    const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
-
     return (
-        <SidebarContext.Provider value={{ toggleSidebar }}>
+        <>
             <Stack.Screen
                 options={{
                     headerShown: false,
@@ -66,9 +64,17 @@ export default function MainLayout() {
                 {/* Sidebar Component */}
                 <Sidebar
                     isOpen={isSidebarOpen}
-                    onClose={() => setIsSidebarOpen(false)}
+                    onClose={() => toggleSidebar()}
                 />
             </SafeAreaView>
-        </SidebarContext.Provider>
+        </>
+    );
+}
+
+export default function MainLayout() {
+    return (
+        <SidebarProvider>
+            <MainLayoutContent />
+        </SidebarProvider>
     );
 }
