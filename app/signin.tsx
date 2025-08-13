@@ -1,4 +1,4 @@
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Image } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
@@ -16,6 +16,7 @@ export default function SignIn() {
         password: '',
     });
     const [showPassword, setShowPassword] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
 
     const validateForm = () => {
         const newErrors = {
@@ -31,36 +32,25 @@ export default function SignIn() {
     const handleSignIn = async () => {
         if (!validateForm()) return;
 
-        try {
-            const response = await fetch('https://agrisense-tlsx.onrender.com/login', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    email: formData.email,
-                    password: formData.password,
-                }),
-            });
+        setIsLoading(true);
 
-            const data = await response.json();
+        // Simulate API call delay
+        setTimeout(async () => {
+            try {
+                // Simulate successful login
+                const mockToken = 'mock_jwt_token_' + Date.now();
+                await AsyncStorage.setItem('token', mockToken);
+                await AsyncStorage.setItem('userEmail', formData.email);
+                await AsyncStorage.setItem('isLoggedIn', 'true');
 
-            console.log('Response:', response);
-            console.log('Data:', data);
-
-            if (response.ok && data.token) {
-                // Save token to AsyncStorage or any secure storage
-                await AsyncStorage.setItem('token', data.token);
-
-                // Redirect to community page
-                router.push('/(main)/community');
-            } else {
-                alert(data.message || 'Invalid credentials');
+                // Navigate to dashboard
+                router.push('/dashboard');
+            } catch (error) {
+                Alert.alert('Error', 'Failed to sign in. Please try again.');
+            } finally {
+                setIsLoading(false);
             }
-        } catch (error) {
-            alert('An error occurred during sign in');
-            console.error('Sign in error:', error);
-        }
+        }, 1500); // 1.5 second delay to simulate API call
     };
 
     const handleBackPress = () => {
@@ -102,6 +92,7 @@ export default function SignIn() {
                             onChangeText={(text) => setFormData({ ...formData, email: text })}
                             className={`bg-gray-100 mb-4 p-4 rounded-lg ${errors.email ? 'border-red-500 border' : ''}`}
                             keyboardType="email-address"
+                            editable={!isLoading}
                         />
                         {errors.email ? <Text className="text-red-500 text-sm mt-1">{errors.email}</Text> : null}
                     </View>
@@ -113,11 +104,13 @@ export default function SignIn() {
                             onChangeText={(text) => setFormData({ ...formData, password: text })}
                             secureTextEntry={!showPassword}
                             className={`bg-gray-100 p-4 mb-4 rounded-lg ${errors.password ? 'border-red-500 border' : ''}`}
+                            editable={!isLoading}
                         />
                         {errors.password ? <Text className="text-red-500 text-sm mt-1">{errors.password}</Text> : null}
                         <TouchableOpacity
                             onPress={() => setShowPassword(!showPassword)}
                             className="absolute right-4 top-4"
+                            disabled={isLoading}
                         >
                             <Ionicons name={showPassword ? "eye-off" : "eye"} size={24} color="gray" />
                         </TouchableOpacity>
@@ -126,42 +119,25 @@ export default function SignIn() {
                     <TouchableOpacity
                         onPress={() => router.push('/forgot-password')}
                         className="items-end"
+                        disabled={isLoading}
                     >
                         <Text className="text-[#0B4D26] text-sm">Forgot your password? Reset here</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
                         onPress={handleSignIn}
-                        className="bg-[#0B4D26] p-4 rounded-lg mt-4"
+                        className={`p-4 rounded-lg mt-4 ${isLoading ? 'bg-gray-400' : 'bg-[#0B4D26]'}`}
+                        disabled={isLoading}
                     >
                         <Text className="text-white text-center font-semibold text-lg">
-                            Login
+                            {isLoading ? 'Signing in...' : 'Login'}
                         </Text>
                     </TouchableOpacity>
 
-                    <View className="mt-8">
-                        <Text className="text-center text-gray-500 mb-4">or sign in with</Text>
-
-                        <View className="flex-row justify-center space-x-6">
-                            <TouchableOpacity className="p-2">
-                                <AntDesign name="google" size={24} color="#DB4437" />
-                            </TouchableOpacity>
-                            <TouchableOpacity className="p-2">
-                                <AntDesign name="twitter" size={24} color="#1DA1F2" />
-                            </TouchableOpacity>
-                            <TouchableOpacity className="p-2">
-                                <AntDesign name="facebook-square" size={24} color="#4267B2" />
-                            </TouchableOpacity>
-                            <TouchableOpacity className="p-2">
-                                <AntDesign name="instagram" size={24} color="#E4405F" />
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-
-                    <View className="flex-row justify-center mt-6 mb-8">
-                        <Text className="text-gray-600">Don't have an account? </Text>
-                        <TouchableOpacity onPress={() => router.push('/signup')}>
-                            <Text className="text-[#0B4D26] font-semibold">Sign Up</Text>
+                    <View className="flex-row justify-center items-center space-x-2 mt-6">
+                        <Text className="text-gray-500">Don't have an account?</Text>
+                        <TouchableOpacity onPress={() => router.push('/signup')} disabled={isLoading}>
+                            <Text className="text-[#0B4D26] font-semibold">Sign up</Text>
                         </TouchableOpacity>
                     </View>
                 </View>

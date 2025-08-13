@@ -37,19 +37,20 @@ export default function RootLayout() {
                 <Stack.Screen name="signup" options={{ headerShown: false }} />
                 <Stack.Screen name="signin" options={{ headerShown: false }} />
                 <Stack.Screen name="verifyEmail" options={{ headerShown: false }} />
-                <Stack.Screen name="SoilDetection" options={{ headerShown: false }} />
                 <Stack.Screen name="dashboard" options={{ headerShown: false }} />
-                <Stack.Screen name="SoilDetectionProcess" options={{ headerShown: false }} />
+                <Stack.Screen name="create-farm" options={{ headerShown: false }} />
+                <Stack.Screen name="weather" options={{ headerShown: false }} />
+                <Stack.Screen name="SoilDetection" options={{ headerShown: false }} />
+                <Stack.Screen name="MethodSelection" options={{ headerShown: false }} />
+                <Stack.Screen name="CropRecommendation" options={{ headerShown: false }} />
                 <Stack.Screen name="DeviceConnection" options={{ headerShown: false }} />
                 <Stack.Screen name="SoilDetails" options={{ headerShown: false }} />
                 <Stack.Screen name="ResultsPage" options={{ headerShown: false }} />
                 <Stack.Screen name="DataScanned" options={{ headerShown: false }} />
                 <Stack.Screen name="recommends" options={{ headerShown: false }} />
-                <Stack.Screen name="CropRecommendation" options={{ headerShown: false }} />
-                <Stack.Screen name="MethodSelection" options={{ headerShown: false }} />
                 <Stack.Screen name="ImageCapture" options={{ headerShown: false }} />
-                <Stack.Screen name="(main)/camera" options={{ headerShown: false }} />
                 <Stack.Screen name="camera-demo" options={{ headerShown: false }} />
+                <Stack.Screen name="demo-navigation" options={{ headerShown: false }} />
                 <Stack.Screen name="+not-found" />
             </Stack>
             <StatusBar style="auto" />
