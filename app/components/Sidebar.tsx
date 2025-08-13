@@ -1,7 +1,7 @@
 import { View, Text, Pressable, Image, ScrollView, StyleSheet, Alert, SafeAreaView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const menuItems = [
@@ -9,7 +9,7 @@ const menuItems = [
     { icon: 'analytics-outline', label: 'Analytics', route: '/(main)/analytics' as const },
     { icon: 'leaf-outline', label: 'Harvest', route: '/(main)/harvest' as const },
     { icon: 'calendar-outline', label: 'Schedule', route: '/(main)/schedule' as const },
-    { icon: 'star-outline', label: 'Recommends', route: '/(main)/recommends' as const },
+    { icon: 'star-outline', label: 'Recommends', route: '../recommends' as const },
     { icon: 'cloudy-outline', label: 'Weather', route: '/(main)/weather' as const },
     { icon: 'scan-outline', label: 'Soil detects', route: '/../SoilDetection' as const },
     { icon: 'people-outline', label: 'Community', route: '/(main)/community' as const },
@@ -24,6 +24,36 @@ interface SidebarProps {
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     const router = useRouter();
     const [activeRoute, setActiveRoute] = useState('/(main)/dashboard');
+    const [username, setUsername] = useState('');
+
+    useEffect(() => {
+        const fetchUserData = async () => {
+            try {
+                const token = await AsyncStorage.getItem('token');
+                if (token) {
+                    const response = await fetch('https://agrisense-tlsx.onrender.com/user', {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json',
+                        },
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        setUsername(data.user.username);
+                    } else {
+                        console.error('Failed to fetch user data');
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to fetch user data', error);
+            }
+        };
+
+        fetchUserData();
+    }, []);
 
     const handleLogout = async () => {
         try {
@@ -48,7 +78,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                     />
                     <View style={styles.profileInfo}>
                         <Text style={styles.greeting}>Good Day👋</Text>
-                        <Text style={styles.name}>Nelson IRASUBIZA</Text>
+                        <Text style={styles.name}>{username}</Text>
                     </View>
                 </View>
 
@@ -56,11 +86,10 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                 <ScrollView style={styles.menuContainer} className='mt-5' >
                     {menuItems.map((item, index) => (
                         <Pressable
-                            className={`flex p-2 flex-row items-center mb-2 gap-3 mx-2 rounded-lg ${
-                                activeRoute === item.route
-                                ? 'bg-[#0B4D26]'
-                                : 'hover:bg-gray-100'
-                            }`}
+                            className={`flex p-2 flex-row items-center mb-2 gap-3 mx-2 rounded-lg ${activeRoute === item.route
+                                    ? 'bg-[#0B4D26]'
+                                    : 'hover:bg-gray-100'
+                                }`}
                             key={index}
                             onPress={() => {
                                 setActiveRoute(item.route);
@@ -73,11 +102,10 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                                 size={24}
                                 color={activeRoute === item.route ? '#ffffff' : '#4B5563'}
                             />
-                            <Text className={`${
-                                activeRoute === item.route
-                                ? 'text-white font-medium'
-                                : 'text-gray-600'
-                            }`}>
+                            <Text className={`${activeRoute === item.route
+                                    ? 'text-white font-medium'
+                                    : 'text-gray-600'
+                                }`}>
                                 {item.label}
                             </Text>
                         </Pressable>

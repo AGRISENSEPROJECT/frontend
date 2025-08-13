@@ -16,7 +16,7 @@ export default function Home() {
 
                 <TouchableOpacity
                     className="bg-[#0B4D26] px-14 py-3 rounded-xl"
-                    onPress={() => router.push('/signup')}
+                    onPress={() => router.push('/(main)/camera')}
                 >
                     <Text className="text-white text-lg font-semibold">
                         Get Started

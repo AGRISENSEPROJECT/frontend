@@ -1,4 +1,4 @@
-import { View, Text, TextInput, TouchableOpacity, Image, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Image, ScrollView, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
@@ -23,6 +23,7 @@ export default function Signup() {
         confirmPassword: ''
     });
     const [agreeToTerms, setAgreeToTerms] = useState(false);
+    const [modalVisible, setModalVisible] = useState(false);
 
     const validateEmail = (email: string) => {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -58,7 +59,6 @@ export default function Signup() {
         setErrors(newErrors);
         return !Object.values(newErrors).some(error => error !== '');
     };
-
     const handleSignup = async () => {
         if (!validateForm()) return;
         if (!agreeToTerms) {
@@ -67,20 +67,30 @@ export default function Signup() {
         }
 
         try {
-            const response = await authApi.signup({
-                email: formData.email,
-                username: formData.username,
-                password: formData.password,
+            const response = await fetch('https://agrisense-tlsx.onrender.com/register', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    email: formData.email,
+                    username: formData.username,
+                    password: formData.password
+                })
             });
 
-            if (response.success) {
+            const data = await response.json();
+            console.log(data); // Log API response
+
+            if (response.ok) {
+                alert('Signup successful!');
                 router.push(`/verifyEmail?email=${encodeURIComponent(formData.email)}`);
             } else {
-                alert(response.message || 'Signup failed');
+                alert(data.message || 'Signup failed');
             }
         } catch (error) {
-            alert('An error occurred during signup');
             console.error(error);
+            alert('An error occurred during signup');
         }
     };
 
@@ -110,12 +120,12 @@ export default function Signup() {
                     </Text>
                 </View>
 
-                <View className="mt-8 space-y-6">
+                <View className="mt-8 space-y-1">
                     <View>
                         <TextInput
                             placeholder="Email address"
                             value={formData.email}
-                            onChangeText={(text) => setFormData({...formData, email: text})}
+                            onChangeText={(text) => setFormData({ ...formData, email: text })}
                             className="bg-gray-100 p-4 mb-4 rounded-lg"
                             keyboardType="email-address"
                         />
@@ -126,7 +136,7 @@ export default function Signup() {
                         <TextInput
                             placeholder="Username"
                             value={formData.username}
-                            onChangeText={(text) => setFormData({...formData, username: text})}
+                            onChangeText={(text) => setFormData({ ...formData, username: text })}
                             className="bg-gray-100 mb-4 p-4 rounded-lg"
                         />
                         {errors.username ? <Text className="text-red-500 text-sm mt-1">{errors.username}</Text> : null}
@@ -136,7 +146,7 @@ export default function Signup() {
                         <TextInput
                             placeholder="Password"
                             value={formData.password}
-                            onChangeText={(text) => setFormData({...formData, password: text})}
+                            onChangeText={(text) => setFormData({ ...formData, password: text })}
                             secureTextEntry={!showPassword}
                             className="bg-gray-100 p-4 mb-4 rounded-lg"
                         />
@@ -153,7 +163,7 @@ export default function Signup() {
                         <TextInput
                             placeholder="Confirm password"
                             value={formData.confirmPassword}
-                            onChangeText={(text) => setFormData({...formData, confirmPassword: text})}
+                            onChangeText={(text) => setFormData({ ...formData, confirmPassword: text })}
                             secureTextEntry={!showConfirmPassword}
                             className="bg-gray-100 mb-4 p-4 rounded-lg"
                         />
@@ -168,7 +178,7 @@ export default function Signup() {
 
                     <View className="flex-row items-center mt-4">
                         <TouchableOpacity
-                            onPress={() => setAgreeToTerms(!agreeToTerms)}
+                            onPress={() => setModalVisible(true)}
                             className="flex-row items-center"
                         >
                             <View className={`w-5 h-5 border rounded mr-2 ${agreeToTerms ? 'bg-[#0B4D26] border-[#0B4D26]' : 'border-gray-300'}`}>
@@ -215,6 +225,35 @@ export default function Signup() {
                     </View>
                 </View>
             </ScrollView>
+
+            <Modal
+                animationType="slide"
+                transparent={true}
+                visible={modalVisible}
+                onRequestClose={() => setModalVisible(false)}
+            >
+                <View className="flex-1 justify-center items-center bg-black bg-opacity-50">
+                    <View className="bg-white rounded-lg p-6 w-11/12">
+                        <Text className="text-lg font-bold text-center mb-4">Terms & Conditions</Text>
+                        <Text className="text-sm text-center mb-4">
+                            Welcome to AgriSense! 🌱 By using this app, you agree to our Terms & Conditions and Privacy Policy. AgriSense helps farmers with real-time soil analysis, weather insights, crop recommendations, irrigation advice, and pest management.
+                            Users must provide accurate farm details, use the app for agriculture only, and keep accounts secure. Misuse, such as false data or tampering, is prohibited.
+                            We collect farm, user, and location data to improve recommendations. Your data is secure and never sold. While we strive for 24/7 availability, occasional downtime may occur.
+                            Users can update or delete data anytime. For support, contact [example@gmail.com]
+                        </Text>
+                        <TouchableOpacity
+                            onPress={() => {
+                                setAgreeToTerms(true);
+                                setModalVisible(false);
+                            }}
+                            className="flex-row items-center justify-center bg-[#0B4D26] p-2 rounded-lg"
+                        >
+                            <Ionicons name="checkmark" size={16} color="white" />
+                            <Text className="text-white font-semibold ml-2">I Agree & Continue</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
