@@ -3,7 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Ionicons, AntDesign } from '@expo/vector-icons';
-import { authApi, type SigninData } from '@/services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function SignIn() {
     const router = useRouter();
@@ -20,7 +20,7 @@ export default function SignIn() {
     const validateForm = () => {
         const newErrors = {
             email: !formData.email ? 'Email is required' :
-                  !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email) ? 'Invalid email format' : '',
+                !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email) ? 'Invalid email format' : '',
             password: !formData.password ? 'Password is required' : '',
         };
 
@@ -32,20 +32,34 @@ export default function SignIn() {
         if (!validateForm()) return;
 
         try {
-            const response = await authApi.signin({
-                email: formData.email,
-                password: formData.password,
+            const response = await fetch('https://agrisense-tlsx.onrender.com/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    email: formData.email,
+                    password: formData.password,
+                }),
             });
 
-            if (response.success) {
-                router.push(`/verifyEmail?email=${encodeURIComponent(formData.email)}`);
+            const data = await response.json();
+
+            console.log('Response:', response);
+            console.log('Data:', data);
+
+            if (response.ok && data.token) {
+                // Save token to AsyncStorage or any secure storage
+                await AsyncStorage.setItem('token', data.token);
+
+                // Redirect to community page
+                router.push('/(main)/community');
             } else {
-                alert(response.message || 'Invalid credentials');
+                alert(data.message || 'Invalid credentials');
             }
         } catch (error) {
-            router.push(`/verifyEmail?email=${encodeURIComponent(formData.email)}`);
             alert('An error occurred during sign in');
-            console.error(error);
+            console.error('Sign in error:', error);
         }
     };
 
@@ -85,7 +99,7 @@ export default function SignIn() {
                         <TextInput
                             placeholder="Email address"
                             value={formData.email}
-                            onChangeText={(text) => setFormData({...formData, email: text})}
+                            onChangeText={(text) => setFormData({ ...formData, email: text })}
                             className={`bg-gray-100 mb-4 p-4 rounded-lg ${errors.email ? 'border-red-500 border' : ''}`}
                             keyboardType="email-address"
                         />
@@ -96,7 +110,7 @@ export default function SignIn() {
                         <TextInput
                             placeholder="Password"
                             value={formData.password}
-                            onChangeText={(text) => setFormData({...formData, password: text})}
+                            onChangeText={(text) => setFormData({ ...formData, password: text })}
                             secureTextEntry={!showPassword}
                             className={`bg-gray-100 p-4 mb-4 rounded-lg ${errors.password ? 'border-red-500 border' : ''}`}
                         />
