@@ -157,7 +157,7 @@ export default function DataScanned() {
       {/* Button */}
       <TouchableOpacity
         className="bg-[#0B4D26] p-4 rounded-lg items-center mt-4"
-        onPress={() => router.push('NextPage')}
+        onPress={() => router.push('/CropRecommendation')}
       >
         <Text className="text-white text-lg font-bold">Get Recommended</Text>
       </TouchableOpacity>

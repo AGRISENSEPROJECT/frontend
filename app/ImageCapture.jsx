@@ -74,17 +74,8 @@ export default function ImageCapture() {
   };
 
   const saveImage = () => {
-    Alert.alert(
-      'Image Captured',
-      'Image has been captured successfully!',
-      [
-        { text: 'Retake', onPress: retakePicture },
-        { text: 'Use Image', onPress: () => {
-          console.log('Image URI:', capturedImage);
-          router.back();
-        }}
-      ]
-    );
+    console.log('Image URI:', capturedImage);
+    router.push('/SoilDetails');
   };
 
   // Handling permission state

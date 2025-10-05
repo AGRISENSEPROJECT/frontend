@@ -20,6 +20,8 @@ export default function MethodSelection() {
         if (!isCameraEnabled) {
             setIsCameraEnabled(true);
             setIsSensorEnabled(false);
+            // Automatically navigate to camera page when camera toggle is activated
+            router.push('/(main)/camera');
         }
     };
 

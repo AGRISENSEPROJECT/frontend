@@ -172,14 +172,8 @@ export default function CameraPage() {
     };
 
     const saveImage = () => {
-        Alert.alert(
-            'Success!',
-            'Image captured successfully!',
-            [
-                { text: 'Retake', onPress: retakePicture },
-                { text: 'Use Image', onPress: () => router.back() }
-            ]
-        );
+        console.log('Image captured, navigating to SoilDetails');
+        router.push('/SoilDetails');
     };
 
     const retryCamera = () => {
