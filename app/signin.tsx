@@ -31,36 +31,8 @@ export default function SignIn() {
     const handleSignIn = async () => {
         if (!validateForm()) return;
 
-        try {
-            const response = await fetch('https://agrisense-tlsx.onrender.com/login', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    email: formData.email,
-                    password: formData.password,
-                }),
-            });
-
-            const data = await response.json();
-
-            console.log('Response:', response);
-            console.log('Data:', data);
-
-            if (response.ok && data.token) {
-                // Save token to AsyncStorage or any secure storage
-                await AsyncStorage.setItem('token', data.token);
-
-                // Redirect to community page
-                router.push('/(main)/community');
-            } else {
-                alert(data.message || 'Invalid credentials');
-            }
-        } catch (error) {
-            alert('An error occurred during sign in');
-            console.error('Sign in error:', error);
-        }
+        // Simply navigate to dashboard without any logic
+        router.push('/(main)/dashboard');
     };
 
     const handleBackPress = () => {

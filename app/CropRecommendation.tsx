@@ -5,6 +5,36 @@ import { Ionicons } from '@expo/vector-icons';
 export default function CropRecommendations() {
   const [selectedChoice, setSelectedChoice] = useState(1);
 
+  // Static data for different choices - High, Medium, Low quality recommendations
+  const cropData = {
+    1: {
+      bestCrop: 'Maize',
+      growthScore: 'w-5/6',
+      growthText: 'High Quality',
+      plantingSeason: 'March – June',
+      soilSuitability: 'pH: 6.9 | Moisture: Optimal | Nutrients: High',
+      alternativeCrops: 'Premium Soybeans, Organic Cassava'
+    },
+    2: {
+      bestCrop: 'Rice',
+      growthScore: 'w-2/3',
+      growthText: 'Medium Quality',
+      plantingSeason: 'May – August',
+      soilSuitability: 'pH: 6.2 | Moisture: Medium | Nutrients: Medium',
+      alternativeCrops: 'Standard Wheat, Barley'
+    },
+    3: {
+      bestCrop: 'Beans',
+      growthScore: 'w-1/3',
+      growthText: 'Low Quality',
+      plantingSeason: 'April – July',
+      soilSuitability: 'pH: 5.8 | Moisture: Low | Nutrients: Low',
+      alternativeCrops: 'Basic Vegetables, Root Crops'
+    }
+  };
+
+  const currentData = cropData[selectedChoice as keyof typeof cropData];
+
   return (
     <View className="flex-1 bg-green-800">
       {/* Header */}
@@ -53,30 +83,30 @@ export default function CropRecommendations() {
           {/* Crop Details */}
           <View className="bg-white p-4 rounded-lg shadow-sm">
             <Text className="text-green-700 font-semibold">Best Crop :</Text>
-            <Text className="text-gray-700">Maize</Text>
+            <Text className="text-gray-700">{currentData.bestCrop}</Text>
           </View>
 
           <View className="bg-white p-4 rounded-lg shadow-sm">
             <Text className="text-green-700 font-semibold">Growth Score :</Text>
             <View className="h-2 bg-gray-200 rounded-full mt-1">
-              <View className="h-2 bg-green-600 rounded-full w-3/4"></View>
+              <View className={`h-2 bg-green-600 rounded-full ${currentData.growthScore}`}></View>
             </View>
-            <Text className="text-gray-700 mt-1">High Yield</Text>
+            <Text className="text-gray-700 mt-1">{currentData.growthText}</Text>
           </View>
 
           <View className="bg-white p-4 rounded-lg shadow-sm">
             <Text className="text-green-700 font-semibold">Best Planting Season :</Text>
-            <Text className="text-gray-700">March – June</Text>
+            <Text className="text-gray-700">{currentData.plantingSeason}</Text>
           </View>
 
           <View className="bg-white p-4 rounded-lg shadow-sm">
             <Text className="text-green-700 font-semibold">Soil Suitability :</Text>
-            <Text className="text-gray-700">pH: 6.9 | Moisture: Medium | Nutrients: High</Text>
+            <Text className="text-gray-700">{currentData.soilSuitability}</Text>
           </View>
 
           <View className="bg-white p-4 rounded-lg shadow-sm">
             <Text className="text-green-700 font-semibold">Alternative Crops :</Text>
-            <Text className="text-gray-700">Soybeans, Cassava</Text>
+            <Text className="text-gray-700">{currentData.alternativeCrops}</Text>
           </View>
         </ScrollView>
       </View>
