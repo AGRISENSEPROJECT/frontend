@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { useState } from 'react';
-import { Bell, Leaf } from 'lucide-react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function CropRecommendations() {
   const [selectedChoice, setSelectedChoice] = useState(1);
@@ -13,7 +13,7 @@ export default function CropRecommendations() {
           <Text className="text-white text-lg">{'←'}</Text>
         </TouchableOpacity>
         <Text className="text-white text-lg font-semibold">Recommends</Text>
-        <Bell color="white" size={22} />
+        <Ionicons name="notifications-outline" size={22} color="white" />
       </View>
 
       {/* Main Content */}
@@ -21,16 +21,16 @@ export default function CropRecommendations() {
         {/* Icon Tabs */}
         <View className="flex-row justify-around my-2">
           <TouchableOpacity className="bg-green-700 p-2 rounded-lg">
-            <Leaf color="white" size={22} />
+            <Ionicons name="leaf" size={22} color="white" />
           </TouchableOpacity>
           <TouchableOpacity className="p-2">
-            <Leaf color="gray" size={22} />
+            <Ionicons name="leaf-outline" size={22} color="gray" />
           </TouchableOpacity>
           <TouchableOpacity className="p-2">
-            <Leaf color="gray" size={22} />
+            <Ionicons name="leaf-outline" size={22} color="gray" />
           </TouchableOpacity>
           <TouchableOpacity className="p-2">
-            <Leaf color="gray" size={22} />
+            <Ionicons name="leaf-outline" size={22} color="gray" />
           </TouchableOpacity>
         </View>
 
