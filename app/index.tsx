@@ -1,9 +1,48 @@
-import { View, Text, Image, TouchableOpacity } from 'react-native';
+import { View, Text, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function Home() {
     const router = useRouter();
+    const [checking, setChecking] = useState(true);
+
+    useEffect(() => {
+        const checkAuth = async () => {
+            try {
+                const token = await AsyncStorage.getItem('token');
+                const userJson = await AsyncStorage.getItem('user');
+
+                if (token && userJson) {
+                    const user = JSON.parse(userJson);
+
+                    if (!user.isEmailVerified) {
+                        router.replace(`/verifyEmail?email=${encodeURIComponent(user.email)}&userId=${user.id}`);
+                    } else if (!user.hasFarm) {
+                        router.replace('/RegisterFarm');
+                    } else {
+                        router.replace('/(main)/dashboard');
+                    }
+                } else {
+                    setChecking(false);
+                }
+            } catch (error) {
+                console.error('Auth check error:', error);
+                setChecking(false);
+            }
+        };
+
+        checkAuth();
+    }, []);
+
+    if (checking) {
+        return (
+            <SafeAreaView className='flex-1 bg-white items-center justify-center'>
+                <ActivityIndicator size="large" color="#0B4D26" />
+            </SafeAreaView>
+        );
+    }
 
     return (
         <SafeAreaView className='w-screen h-screen bg-white'>

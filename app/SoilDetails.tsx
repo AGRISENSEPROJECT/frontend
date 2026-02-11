@@ -3,193 +3,160 @@ import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
+// Static data matching design: Values and Rates views
+const SOIL_VALUES = {
+  moisture: '85%',
+  temperature: '21 °C',
+  pH: '6',
+  soilType: 'loam',
+  organic: '4.5',
+  soilColor: 'reddish',
+  soilStructure: 'compacted',
+};
+
+const SOIL_RATES = {
+  moisture: 'moderate',
+  temperature: 'optimal',
+  pH: 'moderate',
+  soilType: 'moderate',
+  organic: 'optimal',
+  soilColor: 'moderate',
+  soilStructure: 'low',
+};
+
+const NPK_VALUES = { nitrogen: '20 mg/kg', phosphorus: '20 mg/kg', potassium: '50 mg/kg' };
+const NPK_RATES = { nitrogen: 'moderate', phosphorus: 'optimal', potassium: 'low' };
+
 export default function SoilDetails() {
-  const [activeTab, setActiveTab] = useState('Values');
+  const [activeTab, setActiveTab] = useState<'Values' | 'Rates'>('Values');
   const router = useRouter();
 
-  const currentDate = new Date().toLocaleDateString('en-GB', {
+  const scannedDate = new Date().toLocaleDateString('en-GB', {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
   });
 
-  const generateRandomValue = (min: number, max: number) => {
-    return (Math.random() * (max - min) + min).toFixed(1);
-  };
-
-  const randomSoilType = () => {
-    const types = ['loam', 'clay', 'sandy', 'silt'];
-    return types[Math.floor(Math.random() * types.length)];
-  };
-
-  const randomSoilColor = () => {
-    const colors = ['reddish', 'brown', 'black', 'yellow'];
-    return colors[Math.floor(Math.random() * colors.length)];
-  };
-
-  const randomSoilStructure = () => {
-    const structures = ['compacted', 'loose', 'granular', 'blocky'];
-    return structures[Math.floor(Math.random() * structures.length)];
-  };
-
-  const handleToggle = (tab: string) => {
-    setActiveTab(tab);
-  };
-
   const handleNext = () => {
-    router.push('DataScanned');
+    router.push('/DataScanned');
   };
 
   return (
-    <View className="flex-1 bg-[#F5F5F5] p-4">
-      <View className="flex-row justify-between items-center mb-4">
-        <Ionicons name="arrow-back" size={24} color="black" />
-        <Text className="text-xl font-bold">Soil Details</Text>
-        <View className="flex-row">
-          <Ionicons name="notifications-outline" size={24} color="black" />
-          <Ionicons name="ellipsis-vertical" size={24} color="black" />
+    <View className="flex-1 bg-[#F8F8F0]">
+      {/* Header - dark green icons, centered title */}
+      <View className="flex-row items-center justify-between pt-12 pb-3 px-4 bg-[#F8F8F0]">
+        <TouchableOpacity onPress={() => router.replace('/(main)/dashboard')} className="p-2 -ml-2">
+          <Ionicons name="arrow-back" size={24} color="#34643F" />
+        </TouchableOpacity>
+        <Text className="text-lg font-bold text-gray-900">Soil Details</Text>
+        <View className="flex-row items-center gap-1">
+          <TouchableOpacity className="p-2">
+            <Ionicons name="notifications-outline" size={24} color="#34643F" />
+          </TouchableOpacity>
+          <View className="w-8 h-8 rounded-full bg-gray-200 items-center justify-center">
+            <Ionicons name="person" size={18} color="#666" />
+          </View>
         </View>
       </View>
 
-      <View className="bg-white p-4 rounded-lg shadow mb-4 flex-row justify-between items-center">
-        <View className="flex-row items-center">
-          <Ionicons name="information-circle-outline" size={24} color="green" />
-          <Text className="ml-2 text-lg font-semibold">Data scanned</Text>
+      <ScrollView className="flex-1 px-4" contentContainerStyle={{ paddingBottom: 24 }}>
+        {/* Data scanned card - lighter green background */}
+        <View className="bg-[#E8F0E8] p-4 rounded-xl flex-row justify-between items-center mb-4">
+          <View className="flex-row items-center">
+            <Ionicons name="information-circle" size={22} color="#34643F" />
+            <Text className="ml-2 text-base font-semibold text-gray-900">Data scanned</Text>
+          </View>
+          <Text className="text-gray-600 text-sm">{scannedDate}</Text>
         </View>
-        <Text className="text-gray-600">{currentDate}</Text>
-      </View>
 
-      <View className="flex-row justify-center mb-4 bg-gray-200 rounded-full p-1">
-        <TouchableOpacity
-          className={`flex-1 items-center py-2 rounded-full ${activeTab === 'Values' ? 'bg-[#0B4D26]' : ''}`}
-          onPress={() => handleToggle('Values')}
-        >
-          <Text className={`${activeTab === 'Values' ? 'text-white' : 'text-black'}`}>Values</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          className={`flex-1 items-center py-2 rounded-full ${activeTab === 'Rates' ? 'bg-[#0B4D26]' : ''}`}
-          onPress={() => handleToggle('Rates')}
-        >
-          <Text className={`${activeTab === 'Rates' ? 'text-white' : 'text-black'}`}>Rates</Text>
-        </TouchableOpacity>
-      </View>
+        {/* Segmented control - Values | Rates */}
+        <View className="flex-row bg-[#E8E8E0] rounded-xl p-1 mb-5">
+          <TouchableOpacity
+            className={`flex-1 items-center py-2.5 rounded-lg ${activeTab === 'Values' ? 'bg-[#34643F]' : ''}`}
+            onPress={() => setActiveTab('Values')}
+          >
+            <Text className={`text-base font-semibold ${activeTab === 'Values' ? 'text-white' : 'text-[#34643F]'}`}>
+              Values
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            className={`flex-1 items-center py-2.5 rounded-lg ${activeTab === 'Rates' ? 'bg-[#34643F]' : ''}`}
+            onPress={() => setActiveTab('Rates')}
+          >
+            <Text className={`text-base font-semibold ${activeTab === 'Rates' ? 'text-white' : 'text-[#34643F]'}`}>
+              Rates
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-      <ScrollView className="flex-1">
-        <View className="bg-white p-4 rounded-lg shadow mb-4">
-          <View className="flex-row justify-between mb-4">
-            <Text className="font-semibold">Property</Text>
-            <Text className="font-semibold">{activeTab}</Text>
+        {/* Property table */}
+        <View className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-sm mb-4">
+          <View className="flex-row justify-between mb-3 pb-2 border-b border-gray-200">
+            <Text className="font-semibold text-gray-900">Property</Text>
+            <Text className="font-semibold text-gray-900">{activeTab}</Text>
           </View>
           {activeTab === 'Values' ? (
             <>
-              <View className="flex-row justify-between mb-2">
-                <Text>Moisture:</Text>
-                <Text>{generateRandomValue(10, 20)}%</Text>
-              </View>
-              <View className="flex-row justify-between mb-2">
-                <Text>Temperature:</Text>
-                <Text>{generateRandomValue(20, 30)} °C</Text>
-              </View>
-              <View className="flex-row justify-between mb-2">
-                <Text>pH level:</Text>
-                <Text>{generateRandomValue(5, 7)}</Text>
-              </View>
-              <View className="flex-row justify-between mb-2">
-                <Text>Soil type:</Text>
-                <Text>{randomSoilType()}</Text>
-              </View>
-              <View className="flex-row justify-between mb-2">
-                <Text>Organic levels:</Text>
-                <Text>{generateRandomValue(3, 5)}%</Text>
-              </View>
-              <View className="flex-row justify-between mb-2">
-                <Text>Soil color:</Text>
-                <Text>{randomSoilColor()}</Text>
-              </View>
-              <View className="flex-row justify-between mb-2">
-                <Text>Soil Structure:</Text>
-                <Text>{randomSoilStructure()}</Text>
-              </View>
+              <Row label="Moisture" value={SOIL_VALUES.moisture} />
+              <Row label="Temperature" value={SOIL_VALUES.temperature} />
+              <Row label="pH level" value={SOIL_VALUES.pH} />
+              <Row label="Soil type" value={SOIL_VALUES.soilType} />
+              <Row label="Organic levels" value={SOIL_VALUES.organic} />
+              <Row label="Soil color" value={SOIL_VALUES.soilColor} />
+              <Row label="Soil structure" value={SOIL_VALUES.soilStructure} />
             </>
           ) : (
             <>
-              <View className="flex-row justify-between mb-2">
-                <Text>Moisture:</Text>
-                <Text>moderate</Text>
-              </View>
-              <View className="flex-row justify-between mb-2">
-                <Text>Temperature:</Text>
-                <Text>optimal</Text>
-              </View>
-              <View className="flex-row justify-between mb-2">
-                <Text>pH level:</Text>
-                <Text>moderate</Text>
-              </View>
-              <View className="flex-row justify-between mb-2">
-                <Text>Soil type:</Text>
-                <Text>moderate</Text>
-              </View>
-              <View className="flex-row justify-between mb-2">
-                <Text>Organic levels:</Text>
-                <Text>optimal</Text>
-              </View>
-              <View className="flex-row justify-between mb-2">
-                <Text>Soil color:</Text>
-                <Text>moderate</Text>
-              </View>
-              <View className="flex-row justify-between mb-2">
-                <Text>Soil Structure:</Text>
-                <Text>low</Text>
-              </View>
+              <Row label="Moisture" value={SOIL_RATES.moisture} />
+              <Row label="Temperature" value={SOIL_RATES.temperature} />
+              <Row label="pH level" value={SOIL_RATES.pH} />
+              <Row label="Soil type" value={SOIL_RATES.soilType} />
+              <Row label="Organic levels" value={SOIL_RATES.organic} />
+              <Row label="Soil color" value={SOIL_RATES.soilColor} />
+              <Row label="Soil structure" value={SOIL_RATES.soilStructure} />
             </>
           )}
         </View>
 
-        <View className="bg-white p-4 rounded-lg shadow mb-4">
-          <View className="flex-row justify-between mb-4">
-            <Text className="font-semibold">NPK Level</Text>
-            <Text className="font-semibold">{activeTab}</Text>
+        {/* NPK Level table */}
+        <View className="bg-white p-4 rounded-xl border border-gray-200/80 shadow-sm mb-6">
+          <View className="flex-row justify-between mb-3 pb-2 border-b border-gray-200">
+            <Text className="font-semibold text-gray-900">NPK Level</Text>
+            <Text className="font-semibold text-gray-900">{activeTab}</Text>
           </View>
           {activeTab === 'Values' ? (
             <>
-              <View className="flex-row justify-between mb-2">
-                <Text>Nitrogen:</Text>
-                <Text>{generateRandomValue(20, 40)} mg/kg</Text>
-              </View>
-              <View className="flex-row justify-between mb-2">
-                <Text>Phosphorus:</Text>
-                <Text>{generateRandomValue(15, 30)} mg/kg</Text>
-              </View>
-              <View className="flex-row justify-between mb-2">
-                <Text>Potassium:</Text>
-                <Text>{generateRandomValue(40, 60)} mg/kg</Text>
-              </View>
+              <Row label="Nitrogen" value={NPK_VALUES.nitrogen} />
+              <Row label="Phosphorus" value={NPK_VALUES.phosphorus} />
+              <Row label="Potassium" value={NPK_VALUES.potassium} />
             </>
           ) : (
             <>
-              <View className="flex-row justify-between mb-2">
-                <Text>Nitrogen:</Text>
-                <Text>moderate</Text>
-              </View>
-              <View className="flex-row justify-between mb-2">
-                <Text>Phosphorus:</Text>
-                <Text>optimal</Text>
-              </View>
-              <View className="flex-row justify-between mb-2">
-                <Text>Potassium:</Text>
-                <Text>low</Text>
-              </View>
+              <Row label="Nitrogen" value={NPK_RATES.nitrogen} />
+              <Row label="Phosphorus" value={NPK_RATES.phosphorus} />
+              <Row label="Potassium" value={NPK_RATES.potassium} />
             </>
           )}
         </View>
       </ScrollView>
 
-      <TouchableOpacity
-        className="bg-[#0B4D26] p-4 rounded-lg items-center mt-4"
-        onPress={handleNext}
-      >
-        <Text className="text-white text-lg font-bold">Next</Text>
-      </TouchableOpacity>
+      <View className="px-4 pb-8 pt-2">
+        <TouchableOpacity
+          className="bg-[#34643F] py-3.5 rounded-xl items-center active:opacity-90"
+          onPress={handleNext}
+        >
+          <Text className="text-white text-lg font-semibold">Next</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <View className="flex-row justify-between py-2">
+      <Text className="text-gray-700">{label}</Text>
+      <Text className="text-gray-900 font-medium">{value}</Text>
     </View>
   );
 }

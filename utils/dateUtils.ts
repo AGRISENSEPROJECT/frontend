@@ -13,3 +13,5 @@ export const formatDate = (date: Date) => {
         fullDate: `${days[date.getDay()]}, ${date.getDate()} ${months[date.getMonth()]}`
     };
 };
+
+export default null;

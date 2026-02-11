@@ -7,10 +7,10 @@ export default function SoilDetection() {
     const router = useRouter();
 
     return (
-        <SafeAreaView className="flex-1 bg-[#F5F5DC] p-5">
-            <View className="flex-1 justify-centerp-6">
-                {/* Image Container */}
-                <View className="w-full aspect-[3/4] mb-4 overflow-hidden">
+        <SafeAreaView className="flex-1 bg-[#F8F8F0]">
+            <View className="flex-1 justify-center p-6">
+                {/* Image - hands holding plant (with overlay can be added via image asset) */}
+                <View className="w-full aspect-[3/4] mb-5 overflow-hidden rounded-2xl">
                     <Image
                         source={require('../assets/soil-detection-image.png')}
                         className="w-full h-full"
@@ -18,24 +18,21 @@ export default function SoilDetection() {
                     />
                 </View>
 
-                {/* Text Content */}
-                <View className="w-full items-center px-6 mb-4">
-                    <Text className="text-2xl font-semibold mb-2 text-center">
+                <View className="w-full items-center px-2 mb-5">
+                    <Text className="text-2xl font-bold mb-3 text-center text-gray-900">
                         Soil detection
                     </Text>
-                    <Text className="text-gray-700 text-base text-center">
-                        Detect soil type, pH, moisture, nutrients, and other properties
-                        to get recommended about what to do
+                    <Text className="text-gray-700 text-base text-center leading-5">
+                        Detect soil type, pH, moisture, nutrients, and other properties, to get recommended about what to do.
                     </Text>
                 </View>
 
-                {/* Button */}
-                <View className="items-center">
+                <View className="items-center w-full px-4">
                     <TouchableOpacity
-                        className="bg-[#0B4D26] w-3/4 py-2 rounded-sm"
+                        className="bg-[#34643F] w-full py-3.5 rounded-xl active:opacity-90"
                         onPress={() => router.push('MethodSelection')}
                     >
-                        <Text className="text-white text-center text-lg font-medium">
+                        <Text className="text-white text-center text-lg font-semibold">
                             Start now
                         </Text>
                     </TouchableOpacity>

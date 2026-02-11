@@ -4,10 +4,17 @@ import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Ionicons, AntDesign } from '@expo/vector-icons';
 import { authApi, type SignupData } from '@/services/api';
+import StatusModal from '@/components/ui/StatusModal';
 
 
 export default function Signup() {
     const router = useRouter();
+    const [statusModal, setStatusModal] = useState({
+        visible: false,
+        type: 'error' as 'error' | 'success' | 'info',
+        title: '',
+        message: '',
+    });
     const [formData, setFormData] = useState({
         email: '',
         username: '',
@@ -62,35 +69,34 @@ export default function Signup() {
     const handleSignup = async () => {
         if (!validateForm()) return;
         if (!agreeToTerms) {
-            alert('Please agree to the Terms and Conditions');
+            setStatusModal({
+                visible: true,
+                type: 'info',
+                title: 'Terms & Conditions',
+                message: 'Please agree to the Terms and Conditions to continue',
+            });
             return;
         }
 
         try {
-            const response = await fetch('https://agrisense-tlsx.onrender.com/register', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    email: formData.email,
-                    username: formData.username,
-                    password: formData.password
-                })
+            const data = await authApi.signup({
+                email: formData.email,
+                username: formData.username,
+                password: formData.password
             });
 
-            const data = await response.json();
-            console.log(data); // Log API response
+            console.log('Signup success:', data);
 
-            if (response.ok) {
-                alert('Signup successful!');
-                router.push(`/verifyEmail?email=${encodeURIComponent(formData.email)}`);
-            } else {
-                alert(data.message || 'Signup failed');
-            }
-        } catch (error) {
+            // Navigate to verify email
+            router.push(`/verifyEmail?email=${encodeURIComponent(formData.email)}&userId=${data.userId}`);
+        } catch (error: any) {
             console.error(error);
-            alert('An error occurred during signup');
+            setStatusModal({
+                visible: true,
+                type: 'error',
+                title: 'Signup Failed',
+                message: error.message || 'An error occurred during signup',
+            });
         }
     };
 
@@ -103,7 +109,7 @@ export default function Signup() {
     };
 
     return (
-        <SafeAreaView className="flex-1 bg-white pt-6">
+        <SafeAreaView className="flex-1 bg-white">
             <ScrollView className="flex-1 px-4">
                 <TouchableOpacity
                     onPress={handleBackPress}
@@ -212,7 +218,7 @@ export default function Signup() {
                         </TouchableOpacity>
 
                         <TouchableOpacity className="flex-row items-center justify-center space-x-2 bg-[#E7EAF4] p-4 rounded-lg">
-                            <AntDesign name="facebook-square" size={24} color="#4267B2" />
+                            <AntDesign name="facebook" size={24} color="#4267B2" />
                             <Text className="text-black font-semibold ml-2">Continue with Facebook</Text>
                         </TouchableOpacity>
                     </View>
@@ -225,6 +231,14 @@ export default function Signup() {
                     </View>
                 </View>
             </ScrollView>
+
+            <StatusModal
+                visible={statusModal.visible}
+                type={statusModal.type}
+                title={statusModal.title}
+                message={statusModal.message}
+                onClose={() => setStatusModal({ ...statusModal, visible: false })}
+            />
 
             <Modal
                 animationType="slide"

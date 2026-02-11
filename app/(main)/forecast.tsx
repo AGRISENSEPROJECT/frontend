@@ -2,7 +2,7 @@ import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useContext, useState } from 'react';
-import { SidebarContext } from '../context/SidebarContext';
+import { SidebarContext } from '../../context/SidebarContext';
 
 export default function Forecast() {
   const router = useRouter();
@@ -11,7 +11,7 @@ export default function Forecast() {
   const [selectedDayIndex, setSelectedDayIndex] = useState(3);
 
   const weekForecast = params.weekForecast ? JSON.parse(params.weekForecast) : [];
-  
+
   const today = new Date();
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -27,7 +27,7 @@ export default function Forecast() {
   };
 
   const weekDates = Array.from({ length: 7 }, (_, i) => getDayData(i - 3));
-  
+
   const weekData = weekDates.map((dateData, index) => ({
     day: dateData.fullDate,
     shortDay: dateData.shortDay,

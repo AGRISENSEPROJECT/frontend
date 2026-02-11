@@ -9,3 +9,5 @@ export const SidebarContext = createContext<SidebarContextType>({
 });
 
 export const useSidebar = () => useContext(SidebarContext);
+
+export default SidebarContext;

@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, Image, Alert, StyleSheet, Dimensions, Pla
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { Camera } from 'expo-camera';
 
 const { width, height } = Dimensions.get('window');
 
@@ -88,7 +89,6 @@ export default function CameraPage() {
 
     const setupMobileCamera = async () => {
         try {
-            const { Camera } = await import('expo-camera');
             const { status } = await Camera.requestCameraPermissionsAsync();
             setHasPermission(status === 'granted');
         } catch (error) {

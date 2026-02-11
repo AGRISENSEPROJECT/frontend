@@ -1,8 +1,11 @@
 import { View, Text, TextInput, TouchableOpacity, ScrollView, Image, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useState, useEffect } from 'react';
-import { useRouter } from 'expo-router';
+import { useState, useEffect, useRef } from 'react';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { authApi } from '@/services/api';
+import StatusModal from '@/components/ui/StatusModal';
 import Animated, {
     withTiming,
     useAnimatedStyle,
@@ -11,64 +14,150 @@ import Animated, {
 
 export default function VerifyEmail() {
     const router = useRouter();
-    const [code, setCode] = useState(['', '', '', '']); // Changed to array for separate inputs
+    const params = useLocalSearchParams();
+    const [code, setCode] = useState(['', '', '', '', '', '']);
+    const inputRefs = useRef<Array<TextInput | null>>([]);
+    const [statusModal, setStatusModal] = useState({
+        visible: false,
+        type: 'error' as 'error' | 'success' | 'info',
+        title: '',
+        message: '',
+    });
     const [error, setError] = useState('');
-    const [email, setEmail] = useState<string>('raphyboy@gmail.com'); // Default email
-    const [modalVisible, setModalVisible] = useState(false); // State for modal visibility
+    const [email, setEmail] = useState<string>('');
+    const [userId, setUserId] = useState<string>('');
+    const [loading, setLoading] = useState(false);
+    const [modalVisible, setModalVisible] = useState(false);
 
     useEffect(() => {
-        // Get the email from the router params
-        const emailParam = router.query?.email as string;
-        if (emailParam) {
-            setEmail(emailParam);
+        if (params.email) {
+            setEmail(params.email as string);
         }
-    }, [router.query?.email]);
+        if (params.userId) {
+            setUserId(params.userId as string);
+        }
+    }, [params.email, params.userId]);
 
-    const handleVerify = () => {
+    const handleVerify = async () => {
         const combinedCode = code.join('');
         if (code.some(digit => digit === '')) {
-            setError('Please enter a valid 4-digit code');
+            setError('Please enter a valid 6-digit code');
             return;
         }
 
-        // Simulate verification logic
-        if (combinedCode === '1234') {
-            setModalVisible(true);
-            // Modal will auto-close after 3 seconds and redirect to community page
-            setTimeout(() => {
-                setModalVisible(false);
-                router.push('/(main)/community');
-            }, 3000);
-        } else {
-            setError('Invalid verification code');
+        setLoading(true);
+        setError('');
+        try {
+            await authApi.verifyEmail({
+                email: email,
+                otp: combinedCode
+            });
+
+            // Update local user data if it exists
+            const userJson = await AsyncStorage.getItem('user');
+            if (userJson) {
+                const user = JSON.parse(userJson);
+                user.isEmailVerified = true;
+                await AsyncStorage.setItem('user', JSON.stringify(user));
+
+                setModalVisible(true);
+                setTimeout(() => {
+                    setModalVisible(false);
+                    // Check if user has a farm before redirecting
+                    if (user.hasFarm || user.farm) {
+                        router.push('/(main)/dashboard');
+                    } else {
+                        router.push('/RegisterFarm');
+                    }
+                }, 3000);
+            } else {
+                setModalVisible(true);
+                setTimeout(() => {
+                    setModalVisible(false);
+                    router.push('/RegisterFarm');
+                }, 3000);
+            }
+        } catch (err: any) {
+            setError(err.message || 'Invalid verification code');
+        } finally {
+            setLoading(false);
         }
     };
 
     const handleCodeChange = (value: string, index: number) => {
         // Remove non-numeric characters
         const cleanValue = value.replace(/[^0-9]/g, '');
-        const lastDigit = cleanValue.slice(-1);
 
+        if (cleanValue.length > 1) {
+            // Handle pasted value (e.g. "123456")
+            const newCode = [...code];
+            const digits = cleanValue.split('');
+
+            // Distribute digits starting from the current index
+            for (let i = 0; i < digits.length && (index + i) < 6; i++) {
+                newCode[index + i] = digits[i];
+            }
+
+            setCode(newCode);
+
+            // Focus the last filled box or the next one
+            const lastIndex = Math.min(index + digits.length - 1, 5);
+            inputRefs.current[lastIndex]?.focus();
+            return;
+        }
+
+        const lastDigit = cleanValue.slice(-1);
         const newCode = [...code];
 
         if (cleanValue) {
             // Update current input
             newCode[index] = lastDigit;
+            setCode(newCode);
 
             // Auto-advance to next input if available
-            if (index < 3 && lastDigit) {
-                setCode(newCode);
+            if (index < 5) {
+                inputRefs.current[index + 1]?.focus();
             }
         } else {
             // Handle deletion
             newCode[index] = '';
+            setCode(newCode);
         }
-        setCode(newCode);
     };
 
-    const handleResendCode = () => {
-        // Logic to resend the verification code
-        alert('Verification code resent!');
+    const handleKeyPress = (e: any, index: number) => {
+        if (e.nativeEvent.key === 'Backspace' && !code[index] && index > 0) {
+            inputRefs.current[index - 1]?.focus();
+        }
+    };
+
+    const handleResendCode = async () => {
+        if (!userId) {
+            setStatusModal({
+                visible: true,
+                type: 'error',
+                title: 'Missing Information',
+                message: 'User ID missing. Please try signing up again.',
+            });
+            return;
+        }
+
+        try {
+            await authApi.resendOTP(userId);
+            setStatusModal({
+                visible: true,
+                type: 'success',
+                title: 'Code Resent',
+                message: 'A new verification code has been sent to your email.',
+            });
+        } catch (err: any) {
+            setStatusModal({
+                visible: true,
+                type: 'error',
+                title: 'Resend Failed',
+                message: err.message || 'Failed to resend code',
+            });
+        }
     };
 
     const handleChangeEmail = () => {
@@ -142,18 +231,20 @@ export default function VerifyEmail() {
                         Verify your email
                     </Text>
                     <Text className="text-gray-600 mt-2 text-center text-sm">
-                        Please enter the 4-digit code sent to {email}
+                        Please enter the 6-digit code sent to {email}
                     </Text>
                 </View>
 
                 {/* Code input container */}
                 <View className="w-full flex-row justify-between mt-6 mb-2">
-                    {[0, 1, 2, 3].map((index) => (
+                    {[0, 1, 2, 3, 4, 5].map((index) => (
                         <TextInput
                             key={index}
+                            ref={(el) => (inputRefs.current[index] = el)}
                             value={code[index]}
                             onChangeText={(value) => handleCodeChange(value, index)}
-                            className="w-[22%] h-12 bg-[#F5F5F5] rounded-md text-center text-lg border-[0.5px] border-gray-200"
+                            onKeyPress={(e) => handleKeyPress(e, index)}
+                            className="w-[14%] h-12 bg-[#F5F5F5] rounded-md text-center text-lg border-[0.5px] border-gray-200"
                             keyboardType="numeric"
                             maxLength={1}
                             style={{ fontSize: 18 }}
@@ -173,10 +264,11 @@ export default function VerifyEmail() {
 
                 <TouchableOpacity
                     onPress={handleVerify}
-                    className="w-full bg-[#0B4D26] p-3.5 rounded-md mt-6"
+                    disabled={loading}
+                    className={`w-full bg-[#0B4D26] p-3.5 rounded-md mt-6 ${loading ? 'opacity-70' : ''}`}
                 >
                     <Text className="text-white text-center font-medium">
-                        Confirm
+                        {loading ? 'Verifying...' : 'Confirm'}
                     </Text>
                 </TouchableOpacity>
 
@@ -192,12 +284,20 @@ export default function VerifyEmail() {
                 Copyright© 2024 AGRISCAPE. All rights reserved.
             </Text>
 
+            <StatusModal
+                visible={statusModal.visible}
+                type={statusModal.type}
+                title={statusModal.title}
+                message={statusModal.message}
+                onClose={() => setStatusModal({ ...statusModal, visible: false })}
+            />
+
             {/* Replace the Modal with custom popup */}
             <SuccessPopup
                 visible={modalVisible}
                 onClose={() => {
                     setModalVisible(false);
-                    router.push('/(main)/community');
+                    router.push('/RegisterFarm');
                 }}
             />
         </SafeAreaView>

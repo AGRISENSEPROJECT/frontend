@@ -1,112 +1,107 @@
 import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import { RecommendScreenHeader } from '@/components/RecommendScreenHeader';
+
+// Match design: green header, 5 category icons, Crop Recommendations with 3 choice tabs and cards
+const CROP_DATA: Record<number, {
+  bestCrop: string;
+  growthFill: number; // 0–1 for progress bar
+  growthText: string;
+  plantingSeason: string;
+  soilSuitability: string;
+  alternativeCrops: string;
+}> = {
+  1: {
+    bestCrop: 'Maize',
+    growthFill: 0.85,
+    growthText: 'High Yield',
+    plantingSeason: 'March - June',
+    soilSuitability: 'pH: 6.9 | Moisture: Medium | Nutrients: High',
+    alternativeCrops: 'Soybeans, Cassava',
+  },
+  2: {
+    bestCrop: 'Soybeans',
+    growthFill: 0.5,
+    growthText: 'Moderate Yield',
+    plantingSeason: 'March - June',
+    soilSuitability: 'pH: 6.9 | Moisture: Medium | Nutrients: High',
+    alternativeCrops: 'Maize, Cassava',
+  },
+  3: {
+    bestCrop: 'Cassava',
+    growthFill: 0.35,
+    growthText: 'Lower Yield',
+    plantingSeason: 'April - July',
+    soilSuitability: 'pH: 6.5 | Moisture: Medium | Nutrients: Medium',
+    alternativeCrops: 'Maize, Soybeans',
+  },
+};
 
 export default function CropRecommendations() {
   const [selectedChoice, setSelectedChoice] = useState(1);
-
-  // Static data for different choices - High, Medium, Low quality recommendations
-  const cropData = {
-    1: {
-      bestCrop: 'Maize',
-      growthScore: 'w-5/6',
-      growthText: 'High Quality',
-      plantingSeason: 'March – June',
-      soilSuitability: 'pH: 6.9 | Moisture: Optimal | Nutrients: High',
-      alternativeCrops: 'Premium Soybeans, Organic Cassava'
-    },
-    2: {
-      bestCrop: 'Rice',
-      growthScore: 'w-2/3',
-      growthText: 'Medium Quality',
-      plantingSeason: 'May – August',
-      soilSuitability: 'pH: 6.2 | Moisture: Medium | Nutrients: Medium',
-      alternativeCrops: 'Standard Wheat, Barley'
-    },
-    3: {
-      bestCrop: 'Beans',
-      growthScore: 'w-1/3',
-      growthText: 'Low Quality',
-      plantingSeason: 'April – July',
-      soilSuitability: 'pH: 5.8 | Moisture: Low | Nutrients: Low',
-      alternativeCrops: 'Basic Vegetables, Root Crops'
-    }
-  };
-
-  const currentData = cropData[selectedChoice as keyof typeof cropData];
+  const currentData = CROP_DATA[selectedChoice];
 
   return (
-    <View className="flex-1 bg-green-800">
-      {/* Header */}
-      <View className="flex-row justify-between h-20 items-center p-4">
-        <TouchableOpacity>
-          <Text className="text-white text-lg">{'←'}</Text>
-        </TouchableOpacity>
-        <Text className="text-white text-lg font-semibold">Recommends</Text>
-        <Ionicons name="notifications-outline" size={22} color="white" />
-      </View>
+    <View className="flex-1 bg-[#34643F]">
+      <RecommendScreenHeader activeCategory="crop" />
 
-      {/* Main Content */}
-      <View className="flex-1 bg-emerald-50 rounded-t-3xl p-4">
-        {/* Icon Tabs */}
-        <View className="flex-row justify-around my-2">
-          <TouchableOpacity className="bg-green-700 p-2 rounded-lg">
-            <Ionicons name="leaf" size={22} color="white" />
-          </TouchableOpacity>
-          <TouchableOpacity className="p-2">
-            <Ionicons name="leaf-outline" size={22} color="gray" />
-          </TouchableOpacity>
-          <TouchableOpacity className="p-2">
-            <Ionicons name="leaf-outline" size={22} color="gray" />
-          </TouchableOpacity>
-          <TouchableOpacity className="p-2">
-            <Ionicons name="leaf-outline" size={22} color="gray" />
-          </TouchableOpacity>
+      {/* Main content - light cream */}
+      <View className="flex-1 bg-[#F8F8F0] rounded-t-3xl pt-6 px-4 pb-8">
+        {/* Title + subtitle */}
+        <View className="flex-row items-center gap-2 mb-1">
+          <Ionicons name="leaf" size={20} color="#34643F" />
+          <Text className="text-[#34643F] text-lg font-bold">Crop Recommendations</Text>
         </View>
+        <Text className="text-gray-500 text-sm mb-5">Best crops based on soil, weather, and market demand.</Text>
 
-        {/* Title */}
-        <Text className="text-green-800 text-lg font-bold">🌱 Crop Recommendations</Text>
-        <Text className="text-gray-500 text-sm">Best crops based on soil, weather, and market demand.</Text>
-
-        {/* Choice Tabs */}
-        <View className="flex-row justify-around my-4">
+        {/* Choice tabs */}
+        <View className="flex-row justify-around mb-5 bg-white rounded-xl py-2 px-2 border border-gray-200/80">
           {[1, 2, 3].map((choice) => (
-            <TouchableOpacity key={choice} onPress={() => setSelectedChoice(choice)}>
-              <Text className={`text-lg font-semibold ${selectedChoice === choice ? 'text-green-700' : 'text-gray-400'}`}>
+            <TouchableOpacity
+              key={choice}
+              onPress={() => setSelectedChoice(choice)}
+              className={`flex-1 items-center py-2 rounded-lg ${selectedChoice === choice ? 'bg-[#34643F]' : ''}`}
+            >
+              <Text
+                className={`text-base font-semibold ${selectedChoice === choice ? 'text-white' : 'text-gray-400'}`}
+              >
                 Choice {choice}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        <ScrollView className="space-y-2">
-          {/* Crop Details */}
-          <View className="bg-white p-4 rounded-lg shadow-sm">
-            <Text className="text-green-700 font-semibold">Best Crop :</Text>
-            <Text className="text-gray-700">{currentData.bestCrop}</Text>
+        <ScrollView showsVerticalScrollIndicator={false} className="gap-3">
+          <View className="bg-white p-4 rounded-xl border border-gray-200/80">
+            <Text className="text-[#34643F] font-semibold text-sm">Best Crop:</Text>
+            <Text className="text-gray-800 text-base mt-0.5">{currentData.bestCrop}</Text>
           </View>
 
-          <View className="bg-white p-4 rounded-lg shadow-sm">
-            <Text className="text-green-700 font-semibold">Growth Score :</Text>
-            <View className="h-2 bg-gray-200 rounded-full mt-1">
-              <View className={`h-2 bg-green-600 rounded-full ${currentData.growthScore}`}></View>
+          <View className="bg-white p-4 rounded-xl border border-gray-200/80">
+            <Text className="text-[#34643F] font-semibold text-sm">Growth Score:</Text>
+            <View className="h-2.5 bg-gray-200 rounded-full mt-2 overflow-hidden">
+              <View
+                className="h-2.5 bg-[#34643F] rounded-full"
+                style={{ width: `${currentData.growthFill * 100}%`, minWidth: 8 }}
+              />
             </View>
-            <Text className="text-gray-700 mt-1">{currentData.growthText}</Text>
+            <Text className="text-gray-700 text-sm mt-1.5">{currentData.growthText}</Text>
           </View>
 
-          <View className="bg-white p-4 rounded-lg shadow-sm">
-            <Text className="text-green-700 font-semibold">Best Planting Season :</Text>
-            <Text className="text-gray-700">{currentData.plantingSeason}</Text>
+          <View className="bg-white p-4 rounded-xl border border-gray-200/80">
+            <Text className="text-[#34643F] font-semibold text-sm">Best Planting Season:</Text>
+            <Text className="text-gray-800 text-base mt-0.5">{currentData.plantingSeason}</Text>
           </View>
 
-          <View className="bg-white p-4 rounded-lg shadow-sm">
-            <Text className="text-green-700 font-semibold">Soil Suitability :</Text>
-            <Text className="text-gray-700">{currentData.soilSuitability}</Text>
+          <View className="bg-white p-4 rounded-xl border border-gray-200/80">
+            <Text className="text-[#34643F] font-semibold text-sm">Soil Suitability:</Text>
+            <Text className="text-gray-800 text-base mt-0.5">{currentData.soilSuitability}</Text>
           </View>
 
-          <View className="bg-white p-4 rounded-lg shadow-sm">
-            <Text className="text-green-700 font-semibold">Alternative Crops :</Text>
-            <Text className="text-gray-700">{currentData.alternativeCrops}</Text>
+          <View className="bg-white p-4 rounded-xl border border-gray-200/80">
+            <Text className="text-[#34643F] font-semibold text-sm">Alternative Crops:</Text>
+            <Text className="text-gray-800 text-base mt-0.5">{currentData.alternativeCrops}</Text>
           </View>
         </ScrollView>
       </View>

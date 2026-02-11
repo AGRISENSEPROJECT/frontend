@@ -5,8 +5,18 @@ import { useRouter } from 'expo-router';
 import { Ionicons, AntDesign } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { authApi } from '@/services/api';
+import StatusModal from '@/components/ui/StatusModal';
+
 export default function SignIn() {
     const router = useRouter();
+    const [loading, setLoading] = useState(false);
+    const [statusModal, setStatusModal] = useState({
+        visible: false,
+        type: 'error' as 'error' | 'success' | 'info',
+        title: '',
+        message: '',
+    });
     const [formData, setFormData] = useState({
         email: '',
         password: '',
@@ -25,14 +35,53 @@ export default function SignIn() {
         };
 
         setErrors(newErrors);
-        return !Object.values(newErrors).some(error => error !== '');
+        return Object.values(newErrors).every(error => error === '');
     };
 
     const handleSignIn = async () => {
         if (!validateForm()) return;
 
-        // Simply navigate to dashboard without any logic
-        router.push('/(main)/dashboard');
+        setLoading(true);
+        try {
+            const data = await authApi.signin({
+                email: formData.email,
+                password: formData.password,
+            });
+
+            console.log('Login success:', data);
+
+            // Handle unverified email response schema
+            if (data.isEmailVerified === false) {
+                router.push(`/verifyEmail?email=${encodeURIComponent(data.email)}&userId=${data.userId}`);
+                return;
+            }
+
+            // Store token and user info for verified users
+            if (data.access_token) {
+                await AsyncStorage.setItem('token', data.access_token);
+                if (data.refresh_token) {
+                    await AsyncStorage.setItem('refreshToken', data.refresh_token);
+                }
+                await AsyncStorage.setItem('user', JSON.stringify(data.user));
+
+                // Navigate based on user state
+                if (!data.user.hasFarm && !data.user.farm) {
+                    router.push('/RegisterFarm');
+                } else {
+                    router.push('/(main)/dashboard');
+                }
+            }
+        } catch (error: any) {
+            // Professional status modal instead of alert
+            setStatusModal({
+                visible: true,
+                type: 'error',
+                title: 'Login Failed',
+                message: error.message || 'Invalid credentials or email not verified',
+            });
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleBackPress = () => {
@@ -44,7 +93,7 @@ export default function SignIn() {
     };
 
     return (
-        <SafeAreaView className="flex-1 bg-white pt-6">
+        <SafeAreaView className="flex-1 bg-white">
             <ScrollView className="flex-1 px-4">
                 <TouchableOpacity
                     onPress={handleBackPress}
@@ -104,10 +153,11 @@ export default function SignIn() {
 
                     <TouchableOpacity
                         onPress={handleSignIn}
-                        className="bg-[#0B4D26] p-4 rounded-lg mt-4"
+                        disabled={loading}
+                        className={`bg-[#0B4D26] p-4 rounded-lg mt-4 ${loading ? 'opacity-70' : ''}`}
                     >
                         <Text className="text-white text-center font-semibold text-lg">
-                            Login
+                            {loading ? 'Logging in...' : 'Login'}
                         </Text>
                     </TouchableOpacity>
 
@@ -122,7 +172,7 @@ export default function SignIn() {
                                 <AntDesign name="twitter" size={24} color="#1DA1F2" />
                             </TouchableOpacity>
                             <TouchableOpacity className="p-2">
-                                <AntDesign name="facebook-square" size={24} color="#4267B2" />
+                                <AntDesign name="facebook" size={24} color="#4267B2" />
                             </TouchableOpacity>
                             <TouchableOpacity className="p-2">
                                 <AntDesign name="instagram" size={24} color="#E4405F" />
@@ -138,6 +188,14 @@ export default function SignIn() {
                     </View>
                 </View>
             </ScrollView>
+
+            <StatusModal
+                visible={statusModal.visible}
+                type={statusModal.type}
+                title={statusModal.title}
+                message={statusModal.message}
+                onClose={() => setStatusModal({ ...statusModal, visible: false })}
+            />
         </SafeAreaView>
     );
 }

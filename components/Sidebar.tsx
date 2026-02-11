@@ -1,17 +1,21 @@
-import { View, Text, Pressable, Image, ScrollView, StyleSheet, Alert, SafeAreaView } from 'react-native';
+import { View, Text, Pressable, Image, ScrollView, StyleSheet, Alert } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { authApi } from '@/services/api';
+import StatusModal from '@/components/ui/StatusModal';
 
 const menuItems = [
     { icon: 'grid-outline', label: 'Dashboard', route: '/(main)/dashboard' as const },
+    { icon: 'add-circle-outline', label: 'Register Farm', route: '/RegisterFarm' as const },
     { icon: 'analytics-outline', label: 'Analytics', route: '/(main)/analytics' as const },
     { icon: 'leaf-outline', label: 'Harvest', route: '/(main)/harvest' as const },
     { icon: 'calendar-outline', label: 'Schedule', route: '/(main)/schedule' as const },
-    { icon: 'star-outline', label: 'Recommends', route: '../recommends' as const },
+    { icon: 'star-outline', label: 'Recommends', route: '/recommends' as const },
     { icon: 'cloudy-outline', label: 'Weather', route: '/(main)/weather' as const },
-    { icon: 'scan-outline', label: 'Soil detects', route: '/../SoilDetection' as const },
+    { icon: 'scan-outline', label: 'Soil detects', route: '/SoilDetection' as const },
     { icon: 'people-outline', label: 'Community', route: '/(main)/community' as const },
     { icon: 'settings-outline', label: 'Settings', route: '/(main)/settings' as const },
 ];
@@ -25,26 +29,28 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     const router = useRouter();
     const [activeRoute, setActiveRoute] = useState('/(main)/dashboard');
     const [username, setUsername] = useState('');
+    const [statusModal, setStatusModal] = useState({
+        visible: false,
+        type: 'error' as 'error' | 'success' | 'info',
+        title: '',
+        message: '',
+    });
 
     useEffect(() => {
         const fetchUserData = async () => {
             try {
-                const token = await AsyncStorage.getItem('token');
-                if (token) {
-                    const response = await fetch('https://agrisense-tlsx.onrender.com/user', {
-                        method: 'GET',
-                        headers: {
-                            'Authorization': `Bearer ${token}`,
-                            'Content-Type': 'application/json',
-                        },
-                    });
-
-                    const data = await response.json();
-
-                    if (response.ok) {
+                const userJson = await AsyncStorage.getItem('user');
+                if (userJson) {
+                    const userData = JSON.parse(userJson);
+                    setUsername(userData.username || 'User');
+                    setProfileImage(userData.profileImage || null);
+                } else {
+                    const token = await AsyncStorage.getItem('token');
+                    if (token) {
+                        const data = await authApi.getProfile(token);
                         setUsername(data.user.username);
-                    } else {
-                        console.error('Failed to fetch user data');
+                        setProfileImage(data.user.profileImage || null);
+                        await AsyncStorage.setItem('user', JSON.stringify(data.user));
                     }
                 }
             } catch (error) {
@@ -53,15 +59,33 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         };
 
         fetchUserData();
-    }, []);
+    }, [isOpen]); // Refresh when sidebar opens
+
+    const [profileImage, setProfileImage] = useState<string | null>(null);
 
     const handleLogout = async () => {
         try {
-            await AsyncStorage.removeItem('token'); // Remove auth token
+            const token = await AsyncStorage.getItem('token');
+            const refreshToken = await AsyncStorage.getItem('refreshToken');
+            
+            if (token && refreshToken) {
+                try {
+                    await authApi.logout(token, refreshToken);
+                } catch (e) {
+                    console.error('Backend logout failed:', e);
+                }
+            }
+
+            await AsyncStorage.multiRemove(['token', 'refreshToken', 'user', 'skipFarm']); // Clear all auth data including skip preference
             router.replace('/signin'); // Redirect to signin screen
             onClose(); // Close the sidebar
         } catch (error) {
-            Alert.alert('Error', 'Failed to logout. Please try again.');
+            setStatusModal({
+                visible: true,
+                type: 'error',
+                title: 'Logout Failed',
+                message: 'Failed to logout. Please try again.',
+            });
         }
     };
 
@@ -73,7 +97,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                 {/* Profile Section */}
                 <View style={styles.profileSection}>
                     <Image
-                        source={require('../../assets/profile-pic.png')}
+                        source={require('../assets/profile-pic.png')}
                         style={styles.profilePic}
                     />
                     <View style={styles.profileInfo}>
@@ -87,8 +111,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                     {menuItems.map((item, index) => (
                         <Pressable
                             className={`flex p-2 flex-row items-center mb-2 gap-3 mx-2 rounded-lg ${activeRoute === item.route
-                                    ? 'bg-[#0B4D26]'
-                                    : 'hover:bg-gray-100'
+                                ? 'bg-[#0B4D26]'
+                                : 'hover:bg-gray-100'
                                 }`}
                             key={index}
                             onPress={() => {
@@ -103,8 +127,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                                 color={activeRoute === item.route ? '#ffffff' : '#4B5563'}
                             />
                             <Text className={`${activeRoute === item.route
-                                    ? 'text-white font-medium'
-                                    : 'text-gray-600'
+                                ? 'text-white font-medium'
+                                : 'text-gray-600'
                                 }`}>
                                 {item.label}
                             </Text>
@@ -128,6 +152,14 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             <Pressable
                 style={styles.overlayClose}
                 onPress={onClose}
+            />
+
+            <StatusModal
+                visible={statusModal.visible}
+                type={statusModal.type}
+                title={statusModal.title}
+                message={statusModal.message}
+                onClose={() => setStatusModal({ ...statusModal, visible: false })}
             />
         </SafeAreaView>
     );
@@ -161,6 +193,13 @@ const styles = StyleSheet.create({
         width: 36,
         height: 36,
         borderRadius: 18
+    },
+    placeholderPic: {
+        backgroundColor: '#F3F4F6',
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
     },
     profileInfo: {
         flex: 1

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, Image, Alert, StyleSheet, Dimensions } from 'react-native';
-import { Camera, CameraType } from 'expo-camera';
+import { CameraView } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 
@@ -9,16 +9,16 @@ const { width, height } = Dimensions.get('window');
 export default function ImageCapture() {
   // State to manage camera permission, camera type (front/back), captured image, and camera reference
   const [hasPermission, setHasPermission] = useState(null);
-  const [cameraType, setCameraType] = useState(CameraType.back);
+  const [cameraType, setCameraType] = useState('back');
   const [capturedImage, setCapturedImage] = useState(null);
   const [isCameraReady, setIsCameraReady] = useState(false);
-  const [flashMode, setFlashMode] = useState(Camera.Constants.FlashMode.off);
+  const [flashMode, setFlashMode] = useState('off');
   const cameraRef = useRef(null);
 
   // Request camera permission when the component mounts
   useEffect(() => {
     (async () => {
-      const { status } = await Camera.requestCameraPermissionsAsync();
+      const { status } = await CameraView.requestCameraPermissionsAsync();
       setHasPermission(status === 'granted');
 
       if (status !== 'granted') {
@@ -57,15 +57,13 @@ export default function ImageCapture() {
 
   const switchCamera = () => {
     setCameraType(current =>
-      current === CameraType.back ? CameraType.front : CameraType.back
+      current === 'back' ? 'front' : 'back'
     );
   };
 
   const toggleFlash = () => {
     setFlashMode(current =>
-      current === Camera.Constants.FlashMode.off
-        ? Camera.Constants.FlashMode.on
-        : Camera.Constants.FlashMode.off
+      current === 'off' ? 'on' : 'off'
     );
   };
 
@@ -106,12 +104,12 @@ export default function ImageCapture() {
   return (
     <View style={styles.container}>
       {!capturedImage ? (
-        <Camera
+        <CameraView
           ref={cameraRef}
-          type={cameraType}
+          facing={cameraType}
           style={styles.camera}
           onCameraReady={onCameraReady}
-          flashMode={flashMode}
+          flash={flashMode}
         >
           {/* Header Controls */}
           <View style={styles.headerControls}>
@@ -121,7 +119,7 @@ export default function ImageCapture() {
 
             <TouchableOpacity style={styles.headerButton} onPress={toggleFlash}>
               <Ionicons
-                name={flashMode === Camera.Constants.FlashMode.on ? "flash" : "flash-off"}
+                name={flashMode === 'on' ? "flash" : "flash-off"}
                 size={24}
                 color="white"
               />
@@ -154,8 +152,7 @@ export default function ImageCapture() {
               <View style={styles.controlButton} />
             </View>
           </View>
-        </Camera>
-      ) : (
+        </CameraView>      ) : (
         <View style={styles.previewContainer}>
           <Image source={{ uri: capturedImage }} style={styles.previewImage} />
 
