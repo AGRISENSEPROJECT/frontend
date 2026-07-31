@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { authApi, predictionsApi, Recommendation } from '@/services/api';
 import PredictionForm from '@/components/recommendations/PredictionForm';
-import { humanize, formatValue } from '@/components/recommendations/PayloadRows';
+import { humanize, formatEntry, cleanPayload, ErrorNote } from '@/components/recommendations/PayloadRows';
 
 const CATEGORIES = [
     { type: 'crop', icon: 'leaf-outline' as const, title: 'Crop Recommendations', subtitle: 'Best crops based on soil, weather, and market demand.' },
@@ -173,14 +173,20 @@ export default function Recommends() {
                 >
                     {/* Farm switcher: each farm has independent recommendations */}
                     {farms.length > 0 && (
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4 -mx-1">
+                        <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            style={{ flexGrow: 0, marginBottom: 16 }}
+                            contentContainerStyle={{ alignItems: 'center', paddingHorizontal: 2 }}
+                        >
                             {farms.map(farm => {
                                 const isSelected = farm.id === selectedFarmId;
                                 return (
                                     <TouchableOpacity
                                         key={farm.id}
                                         onPress={() => switchFarm(farm)}
-                                        className={`flex-row items-center px-4 py-2 rounded-full mx-1 border ${isSelected ? 'bg-[#34643F] border-[#34643F]' : 'bg-white border-gray-300'}`}
+                                        className={`flex-row items-center px-4 rounded-full mx-1 border ${isSelected ? 'bg-[#34643F] border-[#34643F]' : 'bg-white border-gray-300'}`}
+                                        style={{ height: 36 }}
                                     >
                                         <Ionicons name="location-outline" size={14} color={isSelected ? '#fff' : '#4B5563'} />
                                         <Text className={`ml-1 text-sm ${isSelected ? 'text-white font-semibold' : 'text-gray-600'}`}>
@@ -227,14 +233,38 @@ export default function Recommends() {
                                 </View>
                             )}
 
-                            {activeItem && (
-                                <>
-                                    {/* Headline card: the recommendation title */}
-                                    <FieldCard label={activeType === 'crop' ? 'Best Crop' : 'Recommendation'} value={activeItem.title} />
+                            {activeItem && (() => {
+                                // Titles like "Irrigation Recommendation" just repeat the
+                                // category header, so only show meaningful ones (e.g. crop names)
+                                const genericTitle = /recommendation|analysis|forecast/i.test(activeItem.title);
+                                const { entries, error } = cleanPayload(
+                                    activeItem.payload,
+                                    genericTitle ? [] : [activeItem.title],
+                                );
+                                return (
+                                    <>
+                                        {!genericTitle && (
+                                            <FieldCard
+                                                label={activeType === 'crop' ? 'Best Crop' : 'Recommendation'}
+                                                value={activeItem.title}
+                                            />
+                                        )}
 
-                                    {/* One card per payload field (design) */}
-                                    {activeItem.payload && typeof activeItem.payload === 'object' &&
-                                        Object.entries(activeItem.payload).map(([key, value]) => {
+                                        {/* The model reported it couldn't produce this recommendation */}
+                                        {error && (
+                                            <View className="mb-3">
+                                                <ErrorNote message={error} />
+                                            </View>
+                                        )}
+
+                                        {entries.length === 0 && !error && (
+                                            <Text className="text-gray-500 text-sm text-center py-6">
+                                                No details available for this recommendation.
+                                            </Text>
+                                        )}
+
+                                        {/* One card per payload field (design) */}
+                                        {entries.map(([key, value]) => {
                                             if (value != null && typeof value === 'object' && !Array.isArray(value)) {
                                                 return (
                                                     <View key={key} className="bg-white rounded-xl border border-gray-200/90 shadow-sm px-4 py-3 mb-3">
@@ -242,26 +272,27 @@ export default function Recommends() {
                                                         {Object.entries(value).map(([subKey, subValue]) => (
                                                             <View key={subKey} className="flex-row justify-between py-0.5">
                                                                 <Text className="text-gray-600 text-sm">{humanize(subKey)}</Text>
-                                                                <Text className="text-gray-900 text-sm font-medium flex-shrink ml-2 text-right">{formatValue(subValue)}</Text>
+                                                                <Text className="text-gray-900 text-sm font-medium flex-shrink ml-2 text-right">{formatEntry(subKey, subValue)}</Text>
                                                             </View>
                                                         ))}
                                                     </View>
                                                 );
                                             }
-                                            return <FieldCard key={key} label={humanize(key)} value={formatValue(value)} />;
+                                            return <FieldCard key={key} label={humanize(key)} value={formatEntry(key, value)} />;
                                         })}
 
-                                    {activeType === 'disease' && (
-                                        <Text className="text-gray-400 text-xs text-center mt-1 mb-2">
-                                            Informational only — satellite data coming soon
-                                        </Text>
-                                    )}
+                                        {activeType === 'disease' && (
+                                            <Text className="text-gray-400 text-xs text-center mt-1 mb-2">
+                                                Informational only — satellite data coming soon
+                                            </Text>
+                                        )}
 
-                                    <Text className="text-gray-400 text-xs text-center mt-2">
-                                        {new Date(activeItem.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}
-                                    </Text>
-                                </>
-                            )}
+                                        <Text className="text-gray-400 text-xs text-center mt-2">
+                                            {new Date(activeItem.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}
+                                        </Text>
+                                    </>
+                                );
+                            })()}
                         </>
                     )}
                 </ScrollView>
