@@ -39,10 +39,47 @@ export const PROVINCES: Record<string, { id: string; label: string }[]> = {
 };
 
 export const SECTORS: Record<string, { id: string; label: string }[]> = {
+    // Rwanda - Kigali City districts (complete sector lists)
+    nyarugenge: [
+        { id: 'gitega', label: 'Gitega' },
+        { id: 'kanyinya', label: 'Kanyinya' },
+        { id: 'kigali', label: 'Kigali' },
+        { id: 'kimisagara', label: 'Kimisagara' },
+        { id: 'mageragere', label: 'Mageragere' },
+        { id: 'muhima', label: 'Muhima' },
+        { id: 'nyakabanda', label: 'Nyakabanda' },
+        { id: 'nyamirambo', label: 'Nyamirambo' },
+        { id: 'nyarugenge_sector', label: 'Nyarugenge' },
+        { id: 'rwezamenyo', label: 'Rwezamenyo' },
+    ],
     gasabo: [
-        { id: 'remera', label: 'Remera' },
-        { id: 'kimironko', label: 'Kimironko' },
+        { id: 'bumbogo', label: 'Bumbogo' },
+        { id: 'gatsata', label: 'Gatsata' },
+        { id: 'gikomero', label: 'Gikomero' },
+        { id: 'gisozi', label: 'Gisozi' },
+        { id: 'jabana', label: 'Jabana' },
+        { id: 'jali', label: 'Jali' },
         { id: 'kacyiru', label: 'Kacyiru' },
+        { id: 'kimihurura', label: 'Kimihurura' },
+        { id: 'kimironko', label: 'Kimironko' },
+        { id: 'kinyinya', label: 'Kinyinya' },
+        { id: 'ndera', label: 'Ndera' },
+        { id: 'nduba', label: 'Nduba' },
+        { id: 'remera', label: 'Remera' },
+        { id: 'rusororo', label: 'Rusororo' },
+        { id: 'rutunga', label: 'Rutunga' },
+    ],
+    kicukiro: [
+        { id: 'gahanga', label: 'Gahanga' },
+        { id: 'gatenga', label: 'Gatenga' },
+        { id: 'gikondo', label: 'Gikondo' },
+        { id: 'kagarama', label: 'Kagarama' },
+        { id: 'kanombe', label: 'Kanombe' },
+        { id: 'kicukiro_sector', label: 'Kicukiro' },
+        { id: 'kigarama', label: 'Kigarama' },
+        { id: 'masaka_sector', label: 'Masaka' },
+        { id: 'niboye', label: 'Niboye' },
+        { id: 'nyarugunga', label: 'Nyarugunga' },
     ],
 };
 

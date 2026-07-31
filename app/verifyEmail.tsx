@@ -15,8 +15,8 @@ import Animated, {
 export default function VerifyEmail() {
     const router = useRouter();
     const params = useLocalSearchParams();
-    const [code, setCode] = useState(['', '', '', '', '', '']);
-    const inputRefs = useRef<Array<TextInput | null>>([]);
+    const [code, setCode] = useState('');
+    const codeInputRef = useRef<TextInput>(null);
     const [statusModal, setStatusModal] = useState({
         visible: false,
         type: 'error' as 'error' | 'success' | 'info',
@@ -39,8 +39,7 @@ export default function VerifyEmail() {
     }, [params.email, params.userId]);
 
     const handleVerify = async () => {
-        const combinedCode = code.join('');
-        if (code.some(digit => digit === '')) {
+        if (code.length !== 6) {
             setError('Please enter a valid 6-digit code');
             return;
         }
@@ -50,7 +49,7 @@ export default function VerifyEmail() {
         try {
             await authApi.verifyEmail({
                 email: email,
-                otp: combinedCode
+                otp: code
             });
 
             // Update local user data if it exists
@@ -84,51 +83,8 @@ export default function VerifyEmail() {
         }
     };
 
-    const handleCodeChange = (value: string, index: number) => {
-        // Remove non-numeric characters
-        const cleanValue = value.replace(/[^0-9]/g, '');
-
-        if (cleanValue.length > 1) {
-            // Handle pasted value (e.g. "123456")
-            const newCode = [...code];
-            const digits = cleanValue.split('');
-
-            // Distribute digits starting from the current index
-            for (let i = 0; i < digits.length && (index + i) < 6; i++) {
-                newCode[index + i] = digits[i];
-            }
-
-            setCode(newCode);
-
-            // Focus the last filled box or the next one
-            const lastIndex = Math.min(index + digits.length - 1, 5);
-            inputRefs.current[lastIndex]?.focus();
-            return;
-        }
-
-        const lastDigit = cleanValue.slice(-1);
-        const newCode = [...code];
-
-        if (cleanValue) {
-            // Update current input
-            newCode[index] = lastDigit;
-            setCode(newCode);
-
-            // Auto-advance to next input if available
-            if (index < 5) {
-                inputRefs.current[index + 1]?.focus();
-            }
-        } else {
-            // Handle deletion
-            newCode[index] = '';
-            setCode(newCode);
-        }
-    };
-
-    const handleKeyPress = (e: any, index: number) => {
-        if (e.nativeEvent.key === 'Backspace' && !code[index] && index > 0) {
-            inputRefs.current[index - 1]?.focus();
-        }
+    const handleCodeChange = (value: string) => {
+        setCode(value.replace(/[^0-9]/g, '').slice(0, 6));
     };
 
     const handleResendCode = async () => {
@@ -235,22 +191,39 @@ export default function VerifyEmail() {
                     </Text>
                 </View>
 
-                {/* Code input container */}
-                <View className="w-full flex-row justify-between mt-6 mb-2">
-                    {[0, 1, 2, 3, 4, 5].map((index) => (
-                        <TextInput
-                            key={index}
-                            ref={(el) => (inputRefs.current[index] = el)}
-                            value={code[index]}
-                            onChangeText={(value) => handleCodeChange(value, index)}
-                            onKeyPress={(e) => handleKeyPress(e, index)}
-                            className="w-[14%] h-12 bg-[#F5F5F5] rounded-md text-center text-lg border-[0.5px] border-gray-200"
-                            keyboardType="numeric"
-                            maxLength={1}
-                            style={{ fontSize: 18 }}
-                            selectTextOnFocus={true}
-                        />
-                    ))}
+                {/* Code input: one hidden input holds the code, boxes just display it */}
+                <View className="w-full mt-6 mb-2">
+                    <View className="flex-row justify-between">
+                        {[0, 1, 2, 3, 4, 5].map((index) => (
+                            <View
+                                key={index}
+                                className={`w-[14%] h-12 bg-[#F5F5F5] rounded-md items-center justify-center border ${
+                                    index === code.length ? 'border-[#0B4D26]' : 'border-gray-200'
+                                }`}
+                            >
+                                <Text style={{ fontSize: 18 }}>{code[index] || ''}</Text>
+                            </View>
+                        ))}
+                    </View>
+                    <TextInput
+                        ref={codeInputRef}
+                        value={code}
+                        onChangeText={handleCodeChange}
+                        keyboardType="number-pad"
+                        maxLength={6}
+                        autoFocus
+                        caretHidden
+                        autoComplete="one-time-code"
+                        textContentType="oneTimeCode"
+                        style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            opacity: 0,
+                        }}
+                    />
                 </View>
 
                 {error ? <Text className="text-red-500 text-sm mb-2">{error}</Text> : null}

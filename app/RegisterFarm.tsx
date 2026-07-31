@@ -413,64 +413,103 @@ export default function RegisterFarm() {
                             </View>
                         )}
 
-                        <TouchableOpacity
-                            style={[styles.dropdownTrigger, !formData.district && styles.disabledDropdown]}
-                            onPress={() => formData.district && toggleDropdown('sector')}
-                            disabled={!formData.district}
-                        >
-                            <Text style={formData.sector ? styles.inputText : styles.placeholderText}>
-                                {formData.sector || 'Sector'}
-                            </Text>
-                            <Ionicons name={dropdowns.sector ? "chevron-up" : "chevron-down"} size={20} color="black" />
-                        </TouchableOpacity>
-                        {dropdowns.sector && (
-                            <View style={styles.dropdownMenu}>
-                                {getSectors().map(item => (
-                                    <TouchableOpacity key={item.id} style={styles.dropdownItem} onPress={() => handleSelect('sector', item.id, item.label)}>
-                                        <Text>{item.label}</Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
+                        {getSectors().length > 0 ? (
+                            <>
+                                <TouchableOpacity
+                                    style={[styles.dropdownTrigger, !formData.district && styles.disabledDropdown]}
+                                    onPress={() => formData.district && toggleDropdown('sector')}
+                                    disabled={!formData.district}
+                                >
+                                    <Text style={formData.sector ? styles.inputText : styles.placeholderText}>
+                                        {formData.sector || 'Sector'}
+                                    </Text>
+                                    <Ionicons name={dropdowns.sector ? "chevron-up" : "chevron-down"} size={20} color="black" />
+                                </TouchableOpacity>
+                                {dropdowns.sector && (
+                                    <View style={styles.dropdownMenu}>
+                                        {getSectors().map(item => (
+                                            <TouchableOpacity key={item.id} style={styles.dropdownItem} onPress={() => handleSelect('sector', item.id, item.label)}>
+                                                <Text>{item.label}</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                )}
+                            </>
+                        ) : (
+                            <TextInput
+                                style={[styles.input, !formData.district && styles.disabledDropdown]}
+                                placeholder="Sector"
+                                placeholderTextColor="#6B7280"
+                                editable={!!formData.district}
+                                value={formData.sector}
+                                onChangeText={(text) => setFormData(prev => ({ ...prev, sector: text }))}
+                            />
                         )}
 
-                        <TouchableOpacity
-                            style={[styles.dropdownTrigger, !formData.sector && styles.disabledDropdown]}
-                            onPress={() => formData.sector && toggleDropdown('cell')}
-                            disabled={!formData.sector}
-                        >
-                            <Text style={formData.cell ? styles.inputText : styles.placeholderText}>
-                                {formData.cell || 'Cell'}
-                            </Text>
-                            <Ionicons name={dropdowns.cell ? "chevron-up" : "chevron-down"} size={20} color="black" />
-                        </TouchableOpacity>
-                        {dropdowns.cell && (
-                            <View style={styles.dropdownMenu}>
-                                {getCells().map(item => (
-                                    <TouchableOpacity key={item.id} style={styles.dropdownItem} onPress={() => handleSelect('cell', item.id, item.label)}>
-                                        <Text>{item.label}</Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
+                        {getCells().length > 0 ? (
+                            <>
+                                <TouchableOpacity
+                                    style={[styles.dropdownTrigger, !formData.sector && styles.disabledDropdown]}
+                                    onPress={() => formData.sector && toggleDropdown('cell')}
+                                    disabled={!formData.sector}
+                                >
+                                    <Text style={formData.cell ? styles.inputText : styles.placeholderText}>
+                                        {formData.cell || 'Cell'}
+                                    </Text>
+                                    <Ionicons name={dropdowns.cell ? "chevron-up" : "chevron-down"} size={20} color="black" />
+                                </TouchableOpacity>
+                                {dropdowns.cell && (
+                                    <View style={styles.dropdownMenu}>
+                                        {getCells().map(item => (
+                                            <TouchableOpacity key={item.id} style={styles.dropdownItem} onPress={() => handleSelect('cell', item.id, item.label)}>
+                                                <Text>{item.label}</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                )}
+                            </>
+                        ) : (
+                            <TextInput
+                                style={[styles.input, !formData.sector && styles.disabledDropdown]}
+                                placeholder="Cell"
+                                placeholderTextColor="#6B7280"
+                                editable={!!formData.sector}
+                                value={formData.cell}
+                                onChangeText={(text) => setFormData(prev => ({ ...prev, cell: text }))}
+                            />
                         )}
 
-                        <TouchableOpacity
-                            style={[styles.dropdownTrigger, !formData.cell && styles.disabledDropdown]}
-                            onPress={() => formData.cell && toggleDropdown('village')}
-                            disabled={!formData.cell}
-                        >
-                            <Text style={formData.village ? styles.inputText : styles.placeholderText}>
-                                {formData.village || 'Village'}
-                            </Text>
-                            <Ionicons name={dropdowns.village ? "chevron-up" : "chevron-down"} size={20} color="black" />
-                        </TouchableOpacity>
-                        {dropdowns.village && (
-                            <View style={styles.dropdownMenu}>
-                                {getVillages().map(item => (
-                                    <TouchableOpacity key={item.id} style={styles.dropdownItem} onPress={() => handleSelect('village', item.id, item.label)}>
-                                        <Text>{item.label}</Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
+                        {getVillages().length > 0 ? (
+                            <>
+                                <TouchableOpacity
+                                    style={[styles.dropdownTrigger, !formData.cell && styles.disabledDropdown]}
+                                    onPress={() => formData.cell && toggleDropdown('village')}
+                                    disabled={!formData.cell}
+                                >
+                                    <Text style={formData.village ? styles.inputText : styles.placeholderText}>
+                                        {formData.village || 'Village'}
+                                    </Text>
+                                    <Ionicons name={dropdowns.village ? "chevron-up" : "chevron-down"} size={20} color="black" />
+                                </TouchableOpacity>
+                                {dropdowns.village && (
+                                    <View style={styles.dropdownMenu}>
+                                        {getVillages().map(item => (
+                                            <TouchableOpacity key={item.id} style={styles.dropdownItem} onPress={() => handleSelect('village', item.id, item.label)}>
+                                                <Text>{item.label}</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                )}
+                            </>
+                        ) : (
+                            <TextInput
+                                style={[styles.input, !formData.cell && styles.disabledDropdown]}
+                                placeholder="Village"
+                                placeholderTextColor="#6B7280"
+                                editable={!!formData.cell}
+                                value={formData.village}
+                                onChangeText={(text) => setFormData(prev => ({ ...prev, village: text }))}
+                            />
                         )}
                     </View>
                 )}
