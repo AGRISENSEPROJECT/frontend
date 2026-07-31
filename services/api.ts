@@ -6,13 +6,17 @@ const authenticatedFetch = async (endpoint: string, options: any = {}): Promise<
     let token = await AsyncStorage.getItem('token');
 
     const makeRequest = async (tokenToUse: string) => {
+        const headers: Record<string, string> = {
+            ...options.headers,
+            'Authorization': `Bearer ${tokenToUse}`,
+        };
+        // Let fetch set the multipart boundary itself for FormData bodies
+        if (!(options.body instanceof FormData)) {
+            headers['Content-Type'] = 'application/json';
+        }
         return await fetch(`${ENV.API_URL}${endpoint}`, {
             ...options,
-            headers: {
-                ...options.headers,
-                'Authorization': `Bearer ${tokenToUse}`,
-                'Content-Type': options.body instanceof FormData ? undefined : 'application/json',
-            },
+            headers,
         });
     };
 
@@ -334,6 +338,83 @@ export const authApi = {
         } catch (error: any) {
             throw new Error(error.message || 'Network error');
         }
+    },
+};
+
+export type Recommendation = {
+    id: string;
+    predictionId: string;
+    farmId: string;
+    type: 'crop' | 'fertilizer' | 'irrigation' | 'disease' | 'weather' | 'general';
+    title: string;
+    payload: Record<string, any>;
+    rank: number;
+    isPrimary: boolean;
+    createdAt: string;
+};
+
+export type PredictionInput = {
+    farmId: string;
+    image: { uri: string; name: string; type: string };
+    temperature: string;
+    humidity: string;
+    rainfall: string;
+    nitrogen: string;
+    phosphorus: string;
+    potassium: string;
+    cropType?: string;
+    soilMoisture?: string;
+};
+
+export const predictionsApi = {
+    run: async (input: PredictionInput): Promise<any> => {
+        const formData = new FormData();
+        formData.append('image', input.image as any);
+        formData.append('farmId', input.farmId);
+        formData.append('temperature', input.temperature);
+        formData.append('humidity', input.humidity);
+        formData.append('rainfall', input.rainfall);
+        formData.append('nitrogen', input.nitrogen);
+        formData.append('phosphorus', input.phosphorus);
+        formData.append('potassium', input.potassium);
+        if (input.cropType) formData.append('crop_type', input.cropType);
+        if (input.soilMoisture) formData.append('soil_moisture', input.soilMoisture);
+
+        return await authenticatedFetch('/api/predictions/run', {
+            method: 'POST',
+            body: formData,
+        });
+    },
+
+    getRecommendations: async (params: { farmId?: string; type?: string; page?: number; limit?: number } = {}): Promise<{ items: Recommendation[]; total: number; page: number; limit: number }> => {
+        const query = new URLSearchParams();
+        if (params.farmId) query.append('farmId', params.farmId);
+        if (params.type) query.append('type', params.type);
+        if (params.page) query.append('page', String(params.page));
+        if (params.limit) query.append('limit', String(params.limit));
+        const qs = query.toString();
+        return await authenticatedFetch(`/api/predictions/recommendations${qs ? `?${qs}` : ''}`, {
+            method: 'GET',
+        });
+    },
+
+    getRuns: async (params: { farmId?: string; page?: number; limit?: number } = {}): Promise<any> => {
+        const query = new URLSearchParams();
+        if (params.farmId) query.append('farmId', params.farmId);
+        if (params.page) query.append('page', String(params.page));
+        if (params.limit) query.append('limit', String(params.limit));
+        const qs = query.toString();
+        return await authenticatedFetch(`/api/predictions/runs${qs ? `?${qs}` : ''}`, {
+            method: 'GET',
+        });
+    },
+
+    getDashboard: async (farmId: string, limit?: number): Promise<any> => {
+        const query = new URLSearchParams({ farmId });
+        if (limit) query.append('limit', String(limit));
+        return await authenticatedFetch(`/api/predictions/dashboard?${query.toString()}`, {
+            method: 'GET',
+        });
     },
 };
 
