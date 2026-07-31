@@ -59,6 +59,11 @@ const authenticatedFetch = async (endpoint: string, options: any = {}): Promise<
     return result;
 };
 
+// The backend reports farm ownership as `farmsCount`; older code expected `hasFarm`.
+// Accept any of the known shapes so login/dashboard guards work correctly.
+export const userHasFarm = (user: any): boolean =>
+    !!(user?.hasFarm || user?.farm || (user?.farmsCount ?? 0) > 0);
+
 export const authApi = {
     endpoints: {
         register: '/api/auth/register',

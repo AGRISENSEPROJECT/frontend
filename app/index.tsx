@@ -19,9 +19,9 @@ export default function Home() {
 
                     if (!user.isEmailVerified) {
                         router.replace(`/verifyEmail?email=${encodeURIComponent(user.email)}&userId=${user.id}`);
-                    } else if (!user.hasFarm) {
-                        router.replace('/RegisterFarm');
                     } else {
+                        // The dashboard verifies farm ownership against the API
+                        // and redirects to farm creation only if truly needed.
                         router.replace('/(main)/dashboard');
                     }
                 } else {

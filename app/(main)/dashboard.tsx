@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSidebar } from '../../context/SidebarContext';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { authApi, predictionsApi } from '@/services/api';
+import { authApi, predictionsApi, userHasFarm } from '@/services/api';
 import PayloadRows, { formatValue, humanize } from '@/components/recommendations/PayloadRows';
 
 const TABS = ['Overview', 'Soil status', 'Weather', 'Recommend', 'Irrigation', 'Pest/Disease'];
@@ -87,8 +87,24 @@ export default function Dashboard() {
                     return;
                 }
 
+                // The cached user can be stale (e.g. farm created after login),
+                // so confirm with the farms API before redirecting to farm creation.
                 const skipFarm = await AsyncStorage.getItem('skipFarm');
-                if (!user.hasFarm && !user.farm && skipFarm !== 'true') {
+                let hasFarm = userHasFarm(user);
+                if (!hasFarm) {
+                    try {
+                        const farmsResponse = await authApi.getFarms();
+                        const farmList = farmsResponse.farms || [];
+                        hasFarm = farmList.length > 0;
+                        if (hasFarm) {
+                            user.farmsCount = farmList.length;
+                            await AsyncStorage.setItem('user', JSON.stringify(user));
+                        }
+                    } catch (error) {
+                        console.error('Error checking farms:', error);
+                    }
+                }
+                if (!hasFarm && skipFarm !== 'true') {
                     router.replace('/RegisterFarm');
                     return;
                 }
@@ -303,13 +319,13 @@ export default function Dashboard() {
                         </TouchableOpacity>
                         <View className="items-center">
                             <TouchableOpacity
-                                onPress={() => farms.length > 1 && setFarmModalVisible(true)}
+                                onPress={() => setFarmModalVisible(true)}
                                 className="flex-row items-center"
-                                disabled={farms.length <= 1}
+                                disabled={farms.length === 0}
                             >
                                 <Ionicons name="location-outline" size={20} color="white" style={{ marginRight: 5 }} />
                                 <Text className="text-white font-medium">{farmData?.name || 'My Farm'}</Text>
-                                {farms.length > 1 && <Ionicons name="chevron-down" size={16} color="white" style={{ marginLeft: 5 }} />}
+                                {farms.length > 0 && <Ionicons name="chevron-down" size={16} color="white" style={{ marginLeft: 5 }} />}
                             </TouchableOpacity>
                             <Text className="text-white text-xs opacity-80">
                                 {farmData ? `${farmData.district}${farmData.province ? `, ${farmData.province}` : ''}` : `Welcome, ${userData?.username || ''}`}

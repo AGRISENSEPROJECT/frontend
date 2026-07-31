@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { authApi } from '@/services/api';
+import { authApi, userHasFarm } from '@/services/api';
 import StatusModal from '@/components/ui/StatusModal';
 import Animated, {
     withTiming,
@@ -63,7 +63,7 @@ export default function VerifyEmail() {
                 setTimeout(() => {
                     setModalVisible(false);
                     // Check if user has a farm before redirecting
-                    if (user.hasFarm || user.farm) {
+                    if (userHasFarm(user)) {
                         router.push('/(main)/dashboard');
                     } else {
                         router.push('/RegisterFarm');

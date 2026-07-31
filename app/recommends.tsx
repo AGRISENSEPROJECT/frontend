@@ -172,7 +172,7 @@ export default function Recommends() {
                     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#34643F']} />}
                 >
                     {/* Farm switcher: each farm has independent recommendations */}
-                    {farms.length > 1 && (
+                    {farms.length > 0 && (
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4 -mx-1">
                             {farms.map(farm => {
                                 const isSelected = farm.id === selectedFarmId;
