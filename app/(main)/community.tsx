@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Image, TouchableOpacity, ScrollView, TextInput, StyleSheet, Modal, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, Image, TouchableOpacity, ScrollView, TextInput, StyleSheet, Modal, ActivityIndicator, Alert, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -44,6 +44,18 @@ export default function Community() {
     const [refreshing, setRefreshing] = useState(false);
     const [communityTab, setCommunityTab] = useState<'Feed' | 'Inbox' | 'Group'>('Feed');
     const params = useLocalSearchParams<{ tab?: string }>();
+
+    const timeAgo = (dateString: string) => {
+        const seconds = Math.floor((Date.now() - new Date(dateString).getTime()) / 1000);
+        if (seconds < 60) return 'Just now';
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return `${minutes}m ago`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return `${hours}h ago`;
+        const days = Math.floor(hours / 24);
+        if (days < 7) return `${days}d ago`;
+        return new Date(dateString).toLocaleDateString();
+    };
 
     useEffect(() => {
         if (params.tab === 'messages') setCommunityTab('Inbox');
@@ -189,71 +201,65 @@ export default function Community() {
             <View style={styles.header}>
                 <View style={styles.headerTop}>
                     <TouchableOpacity onPress={toggleSidebar}>
-                        <Ionicons name="menu" size={24} color="#000" />
+                        <Ionicons name="menu" size={24} color="#fff" />
                     </TouchableOpacity>
                     <Text style={styles.headerTitle}>Farming Community</Text>
                     <TouchableOpacity>
-                        <Ionicons name="ellipsis-horizontal" size={24} color="#000" />
+                        <Ionicons name="notifications-outline" size={24} color="#fff" />
                     </TouchableOpacity>
                 </View>
 
                 {/* Search Bar */}
                 <View style={styles.searchContainer}>
                     <View style={styles.searchBar}>
+                        <Ionicons name="search" size={18} color="#0B4D26" />
                         <TextInput
-                            placeholder="Search.."
+                            placeholder="Search the community.."
                             style={styles.searchInput}
-                            placeholderTextColor="#666"
+                            placeholderTextColor="#4B5563"
                         />
-                        <TouchableOpacity>
-                            <Ionicons name="search" size={20} color="#666" />
-                        </TouchableOpacity>
                     </View>
                 </View>
 
-                {/* Tabs: Feed | Inbox | Group - navigate within community */}
+                {/* Tabs: Feed | Inbox | Group */}
                 <View style={styles.communityTabs}>
-                    <TouchableOpacity
-                        style={[styles.communityTab, communityTab === 'Feed' && styles.communityTabActive]}
-                        onPress={() => setCommunityTab('Feed')}
-                    >
-                        <Text style={[styles.communityTabText, communityTab === 'Feed' && styles.communityTabTextActive]}>Feed</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.communityTab, communityTab === 'Inbox' && styles.communityTabActive]}
-                        onPress={() => setCommunityTab('Inbox')}
-                    >
-                        <Text style={[styles.communityTabText, communityTab === 'Inbox' && styles.communityTabTextActive]}>Inbox</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.communityTab, communityTab === 'Group' && styles.communityTabActive]}
-                        onPress={() => setCommunityTab('Group')}
-                    >
-                        <Text style={[styles.communityTabText, communityTab === 'Group' && styles.communityTabTextActive]}>Group</Text>
-                    </TouchableOpacity>
+                    {(['Feed', 'Inbox', 'Group'] as const).map(tab => (
+                        <TouchableOpacity
+                            key={tab}
+                            style={[styles.communityTab, communityTab === tab && styles.communityTabActive]}
+                            onPress={() => setCommunityTab(tab)}
+                        >
+                            <Text style={[styles.communityTabText, communityTab === tab && styles.communityTabTextActive]}>{tab}</Text>
+                        </TouchableOpacity>
+                    ))}
                 </View>
             </View>
 
-            {/* Add Post card - only on Feed */}
+            {/* Composer - only on Feed */}
             {communityTab === 'Feed' && (
             <TouchableOpacity
                 style={styles.addPostCard}
                 onPress={() => setCreateModalVisible(true)}
                 activeOpacity={0.9}
             >
-                <Text style={styles.addPostTitle}>Add Post</Text>
-                <Text style={styles.addPostSubtitle}>Share updates or seek advice from the farming community.</Text>
+                <Image
+                    source={userData?.profileImage ? { uri: userData.profileImage } : require('../../assets/profile-pic.png')}
+                    style={styles.composerAvatar}
+                />
+                <View style={styles.composerPill}>
+                    <Text style={styles.composerPlaceholder}>Share an update or ask for advice...</Text>
+                </View>
+                <Ionicons name="image-outline" size={22} color="#166534" />
             </TouchableOpacity>
             )}
 
             {/* Content by tab */}
             {communityTab === 'Feed' && (
-            <ScrollView 
+            <ScrollView
                 style={styles.postsList}
-                onScroll={(e) => {
-                    const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
-                    const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 20;
-                }}
+                refreshControl={
+                    <RefreshControl refreshing={refreshing && posts.length > 0} onRefresh={fetchPosts} colors={['#166534']} />
+                }
             >
                 {refreshing && posts.length === 0 ? (
                     <View style={styles.emptyState}>
@@ -275,7 +281,7 @@ export default function Community() {
                                 />
                                 <View>
                                     <Text style={styles.authorName}>{post.author.username}</Text>
-                                    <Text style={styles.timeAgo}>{new Date(post.createdAt).toLocaleDateString()}</Text>
+                                    <Text style={styles.timeAgo}>{timeAgo(post.createdAt)}</Text>
                                 </View>
                             </View>
                             <TouchableOpacity>
@@ -480,77 +486,81 @@ export default function Community() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#f5f5f5'
+        backgroundColor: '#FAF9F6'
     },
     header: {
-        backgroundColor: 'white',
-        borderBottomWidth: 1,
-        borderBottomColor: '#e5e5e5'
+        backgroundColor: '#0B4D26',
+        paddingBottom: 14,
+        borderBottomLeftRadius: 20,
+        borderBottomRightRadius: 20,
     },
     headerTop: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingHorizontal: 16,
-        paddingVertical: 12
+        paddingVertical: 14
     },
     headerTitle: {
         fontSize: 18,
-        fontWeight: '600',
-        color: '#166534'
+        fontWeight: '700',
+        color: '#fff'
     },
     searchContainer: {
         paddingHorizontal: 16,
-        paddingVertical: 8
+        paddingBottom: 4
     },
     searchBar: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#f5f5f5',
-        borderRadius: 8,
+        backgroundColor: '#fff',
+        borderRadius: 10,
         paddingHorizontal: 12,
-        paddingVertical: 8
+        paddingVertical: 9,
+        gap: 8
     },
     searchInput: {
         flex: 1,
         fontSize: 15,
-        color: '#333'
+        color: '#333',
+        padding: 0
     },
     communityTabs: {
         flexDirection: 'row',
         paddingHorizontal: 16,
-        paddingVertical: 10,
+        paddingTop: 12,
         gap: 8,
-        borderBottomWidth: 1,
-        borderBottomColor: '#e5e5e5'
     },
     communityTab: {
         flex: 1,
-        paddingVertical: 10,
+        paddingVertical: 8,
         alignItems: 'center',
-        borderRadius: 8,
-        backgroundColor: '#f0f0f0'
+        borderRadius: 20,
+        backgroundColor: 'rgba(255,255,255,0.15)'
     },
     communityTabActive: {
-        backgroundColor: '#166534'
+        backgroundColor: '#fff'
     },
     communityTabText: {
         fontSize: 14,
         fontWeight: '600',
-        color: '#666'
+        color: 'rgba(255,255,255,0.85)'
     },
     communityTabTextActive: {
-        color: '#fff'
+        color: '#0B4D26'
     },
     messageList: {
-        padding: 16
+        padding: 16,
+        gap: 10
     },
     messageItem: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: '#f0f0f0'
+        backgroundColor: 'white',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        padding: 12,
     },
     messageAvatar: {
         width: 48,
@@ -590,25 +600,39 @@ const styles = StyleSheet.create({
         fontWeight: '600'
     },
     addPostCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
         backgroundColor: 'white',
         marginHorizontal: 16,
-        marginTop: 8,
-        marginBottom: 8,
-        padding: 16,
-        borderRadius: 12,
+        marginTop: 12,
+        marginBottom: 4,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+        borderRadius: 16,
         borderWidth: 1,
-        borderColor: '#e5e5e5'
+        borderColor: '#E5E7EB',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 3,
+        elevation: 1,
     },
-    addPostTitle: {
-        fontSize: 18,
-        fontWeight: '700',
-        color: '#166534',
-        marginBottom: 4
+    composerAvatar: {
+        width: 36,
+        height: 36,
+        borderRadius: 18
     },
-    addPostSubtitle: {
-        fontSize: 14,
-        color: '#666',
-        lineHeight: 20
+    composerPill: {
+        flex: 1,
+        backgroundColor: '#F3F4F6',
+        borderRadius: 20,
+        paddingVertical: 9,
+        paddingHorizontal: 14
+    },
+    composerPlaceholder: {
+        color: '#6B7280',
+        fontSize: 13
     },
     addPostSubtitleModal: {
         fontSize: 14,
@@ -643,7 +667,17 @@ const styles = StyleSheet.create({
     },
     postCard: {
         backgroundColor: 'white',
-        marginBottom: 8
+        marginHorizontal: 16,
+        marginTop: 10,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 3,
+        elevation: 1,
     },
     postHeader: {
         flexDirection: 'row',
@@ -657,9 +691,9 @@ const styles = StyleSheet.create({
         gap: 8
     },
     profilePic: {
-        width: 32,
-        height: 32,
-        borderRadius: 16
+        width: 36,
+        height: 36,
+        borderRadius: 18
     },
     authorName: {
         fontWeight: '600',

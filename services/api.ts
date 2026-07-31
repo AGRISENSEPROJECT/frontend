@@ -128,8 +128,9 @@ export const authApi = {
     },
 
     updateProfile: async (data: { username?: string; phoneNumber?: string }, token: string): Promise<any> => {
+        // Backend exposes PUT /api/auth/profile (PATCH returns 404)
         return await authenticatedFetch(authApi.endpoints.updateProfile, {
-            method: 'PATCH',
+            method: 'PUT',
             body: JSON.stringify(data),
         });
     },
@@ -230,7 +231,7 @@ export const authApi = {
     },
 
     registerFarm: async (data: any, token: string): Promise<any> => {
-        const payload = {
+        const payload: Record<string, any> = {
             name: data.farmName,
             size: parseFloat(data.farmSize) || 0,
             soilType: data.soilType.toLowerCase(),
@@ -241,9 +242,9 @@ export const authApi = {
             cell: data.cell,
             village: data.village,
             ownerName: data.ownerName,
-            ownerPhone: data.phoneNumber,
-            ownerEmail: data.emailAddress
+            ownerEmail: data.emailAddress,
         };
+        if (data.phoneNumber) payload.ownerPhone = data.phoneNumber;
 
         return await authenticatedFetch(authApi.endpoints.registerFarm, {
             method: 'POST',
@@ -264,8 +265,9 @@ export const authApi = {
     },
 
     updateFarm: async (farmId: string, data: any): Promise<any> => {
+        // Backend exposes PUT /api/farms/:id (PATCH returns 404)
         return await authenticatedFetch(authApi.endpoints.farmById(farmId), {
-            method: 'PATCH',
+            method: 'PUT',
             body: JSON.stringify(data),
         });
     },

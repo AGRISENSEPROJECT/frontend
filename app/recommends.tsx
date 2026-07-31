@@ -5,238 +5,287 @@ import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { authApi, predictionsApi, Recommendation } from '@/services/api';
+import PredictionForm from '@/components/recommendations/PredictionForm';
+import { humanize, formatValue } from '@/components/recommendations/PayloadRows';
 
-const TYPE_META: Record<string, { title: string; icon: any }> = {
-    crop: { title: 'Crop', icon: 'leaf' },
-    fertilizer: { title: 'Fertilizer', icon: 'nutrition' },
-    irrigation: { title: 'Irrigation', icon: 'water' },
-    disease: { title: 'Pest & Disease', icon: 'bug' },
-    weather: { title: 'Weather', icon: 'rainy' },
-    general: { title: 'General', icon: 'information-circle' },
-};
-
-const TYPE_ORDER = ['crop', 'fertilizer', 'irrigation', 'weather', 'disease', 'general'];
-
-function humanize(key: string) {
-    return key
-        .replace(/[_-]/g, ' ')
-        .replace(/([a-z])([A-Z])/g, '$1 $2')
-        .replace(/^\w/, c => c.toUpperCase());
-}
-
-function formatValue(value: any): string {
-    if (value == null) return '-';
-    if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2);
-    if (Array.isArray(value)) return value.map(v => (typeof v === 'object' ? JSON.stringify(v) : String(v))).join(', ');
-    return String(value);
-}
-
-function PayloadRows({ payload }: { payload: Record<string, any> }) {
-    if (!payload || typeof payload !== 'object') return null;
-    return (
-        <View className="gap-1.5">
-            {Object.entries(payload).map(([key, value]) => {
-                if (value != null && typeof value === 'object' && !Array.isArray(value)) {
-                    return (
-                        <View key={key} className="mt-1">
-                            <Text className="text-gray-500 text-xs font-semibold uppercase mb-1">{humanize(key)}</Text>
-                            {Object.entries(value).map(([subKey, subValue]) => (
-                                <View key={subKey} className="flex-row justify-between py-0.5 pl-2">
-                                    <Text className="text-gray-600 text-sm">{humanize(subKey)}</Text>
-                                    <Text className="text-gray-900 text-sm font-medium flex-shrink ml-2 text-right">{formatValue(subValue)}</Text>
-                                </View>
-                            ))}
-                        </View>
-                    );
-                }
-                return (
-                    <View key={key} className="flex-row justify-between py-0.5">
-                        <Text className="text-gray-600 text-sm">{humanize(key)}</Text>
-                        <Text className="text-gray-900 text-sm font-medium flex-shrink ml-2 text-right">{formatValue(value)}</Text>
-                    </View>
-                );
-            })}
-        </View>
-    );
-}
+const CATEGORIES = [
+    { type: 'crop', icon: 'leaf-outline' as const, title: 'Crop Recommendations', subtitle: 'Best crops based on soil, weather, and market demand.' },
+    { type: 'irrigation', icon: 'water-outline' as const, title: 'Irrigation Recommendation', subtitle: 'Monitor soil moisture, watering schedules, rainfall forecasts.' },
+    { type: 'disease', icon: 'bug-outline' as const, title: 'Pest & Disease Recommendations', subtitle: 'Detect issues early and protect your crops.' },
+    { type: 'fertilizer', icon: 'flask-outline' as const, title: 'Fertilizer Recommendations', subtitle: 'Optimize soil nutrients for better yields.' },
+    { type: 'weather', icon: 'cloudy-outline' as const, title: 'Weather Recommendations', subtitle: 'Get real-time weather insights for better farm decisions.' },
+];
 
 export default function Recommends() {
     const router = useRouter();
-    const [loading, setLoading] = useState(true);
+    const [view, setView] = useState<'loading' | 'list' | 'form'>('loading');
     const [refreshing, setRefreshing] = useState(false);
     const [items, setItems] = useState<Recommendation[]>([]);
-    const [farmName, setFarmName] = useState<string | null>(null);
-    const [error, setError] = useState<string | null>(null);
-    const [expanded, setExpanded] = useState<string | null>(null);
+    const [farms, setFarms] = useState<any[]>([]);
+    const [selectedFarmId, setSelectedFarmId] = useState<string | null>(null);
+    const [firstTime, setFirstTime] = useState(false);
+    const [activeType, setActiveType] = useState('crop');
+    const [choiceIndex, setChoiceIndex] = useState(0);
 
-    const loadRecommendations = useCallback(async () => {
-        setError(null);
+    const loadRecommendations = useCallback(async (farmId: string): Promise<Recommendation[]> => {
         try {
-            const farmsResponse = await authApi.getFarms();
-            const farms = farmsResponse.farms || [];
-            if (farms.length === 0) {
-                setItems([]);
-                setFarmName(null);
-                return;
-            }
-            const preferredFarmId = await AsyncStorage.getItem('preferredFarmId');
-            const farm = farms.find((f: any) => f.id === preferredFarmId) || farms[0];
-            setFarmName(farm.name);
-
-            const response = await predictionsApi.getRecommendations({ farmId: farm.id, limit: 50 });
-            setItems(response.items || []);
-        } catch (err: any) {
-            setError(err.message || 'Could not load recommendations');
+            const response = await predictionsApi.getRecommendations({ farmId, limit: 50 });
+            return response.items || [];
+        } catch (error) {
+            console.error('Error loading recommendations:', error);
+            return [];
         }
     }, []);
 
     useEffect(() => {
         (async () => {
-            setLoading(true);
-            await loadRecommendations();
-            setLoading(false);
+            try {
+                const farmsResponse = await authApi.getFarms();
+                const farmList = farmsResponse.farms || [];
+                setFarms(farmList);
+                if (farmList.length === 0) {
+                    setFirstTime(true);
+                    setView('form');
+                    return;
+                }
+                const preferredFarmId = await AsyncStorage.getItem('preferredFarmId');
+                const farm = farmList.find((f: any) => f.id === preferredFarmId) || farmList[0];
+                setSelectedFarmId(farm.id);
+                const loaded = await loadRecommendations(farm.id);
+                setItems(loaded);
+                if (loaded.length === 0) {
+                    // No recommendations yet: take the user straight to the form
+                    setFirstTime(true);
+                    setView('form');
+                } else {
+                    setView('list');
+                }
+            } catch (error) {
+                console.error('Error loading farms:', error);
+                setView('form');
+            }
         })();
     }, [loadRecommendations]);
 
+    // Each farm has its own independent recommendations
+    const switchFarm = async (farm: any) => {
+        if (farm.id === selectedFarmId) return;
+        setSelectedFarmId(farm.id);
+        await AsyncStorage.setItem('preferredFarmId', farm.id);
+        setView('loading');
+        setChoiceIndex(0);
+        const loaded = await loadRecommendations(farm.id);
+        setItems(loaded);
+        if (loaded.length === 0) {
+            setFirstTime(true);
+            setView('form');
+        } else {
+            setFirstTime(false);
+            setView('list');
+        }
+    };
+
     const onRefresh = async () => {
+        if (!selectedFarmId) return;
         setRefreshing(true);
-        await loadRecommendations();
+        setItems(await loadRecommendations(selectedFarmId));
         setRefreshing(false);
     };
 
-    const primary = items.find(item => item.isPrimary && item.type === 'crop');
-    const grouped = TYPE_ORDER
-        .map(type => ({ type, items: items.filter(item => item.type === type) }))
-        .filter(group => group.items.length > 0);
+    // After a successful prediction, show the results (redirect to the list view)
+    const handlePredictionSuccess = async (result: any) => {
+        const farmId = result?.soilScan?.farmId || selectedFarmId;
+        if (farmId && farmId !== selectedFarmId) setSelectedFarmId(farmId);
+        const loaded = farmId ? await loadRecommendations(farmId) : [];
+        setItems(loaded);
+        setFirstTime(false);
+        const hasCrop = (result?.recommendations || loaded).some((r: any) => r.type === 'crop');
+        setActiveType(hasCrop ? 'crop' : (loaded[0]?.type || 'crop'));
+        setChoiceIndex(0);
+        setView('list');
+    };
+
+    const activeCategory = CATEGORIES.find(c => c.type === activeType) || CATEGORIES[0];
+    const activeItems = items
+        .filter(item => item.type === activeType)
+        .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
+    const activeItem = activeItems[Math.min(choiceIndex, Math.max(activeItems.length - 1, 0))];
 
     return (
         <View className="flex-1 bg-[#F8F8F0]">
             {/* Header */}
-            <View className="flex-row justify-between items-center bg-[#0B4D26] px-4 pt-12 pb-4">
-                <TouchableOpacity onPress={() => router.replace('/(main)/dashboard')} className="p-2 -ml-2">
-                    <Ionicons name="arrow-back" size={24} color="#fff" />
-                </TouchableOpacity>
-                <View className="items-center">
-                    <Text className="text-white text-lg font-bold">Recommendations</Text>
-                    {farmName && <Text className="text-white/70 text-xs">{farmName}</Text>}
+            <View className="bg-[#34643F] px-4 pt-12 pb-4">
+                <View className="flex-row justify-between items-center">
+                    <TouchableOpacity
+                        onPress={() => {
+                            if (view === 'form' && items.length > 0) {
+                                setView('list');
+                            } else {
+                                router.replace('/(main)/dashboard');
+                            }
+                        }}
+                        className="p-2 -ml-2"
+                    >
+                        <Ionicons name="arrow-back" size={24} color="#fff" />
+                    </TouchableOpacity>
+                    <Text className="text-white text-lg font-bold">Recommends</Text>
+                    <TouchableOpacity className="p-2 -mr-2">
+                        <Ionicons name="notifications-outline" size={24} color="#fff" />
+                    </TouchableOpacity>
                 </View>
-                <TouchableOpacity onPress={() => router.push('/NewRecommendation')} className="p-2 -mr-2">
-                    <Ionicons name="add-circle-outline" size={26} color="#fff" />
-                </TouchableOpacity>
+
+                {/* Category icon tabs (design) — only in list view */}
+                {view === 'list' && (
+                    <View className="flex-row justify-between mt-4 px-2">
+                        {CATEGORIES.map(category => {
+                            const isActive = category.type === activeType;
+                            return (
+                                <TouchableOpacity
+                                    key={category.type}
+                                    onPress={() => {
+                                        setActiveType(category.type);
+                                        setChoiceIndex(0);
+                                    }}
+                                    className={`w-12 h-12 rounded-lg items-center justify-center ${isActive ? 'bg-white' : ''}`}
+                                >
+                                    <Ionicons name={category.icon} size={24} color={isActive ? '#34643F' : '#fff'} />
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                )}
             </View>
 
-            {loading ? (
+            {view === 'loading' && (
                 <View className="flex-1 items-center justify-center">
-                    <ActivityIndicator size="large" color="#0B4D26" />
+                    <ActivityIndicator size="large" color="#34643F" />
                 </View>
-            ) : (
+            )}
+
+            {view === 'form' && (
+                <PredictionForm onSuccess={handlePredictionSuccess} firstTime={firstTime} />
+            )}
+
+            {view === 'list' && (
                 <ScrollView
                     contentContainerStyle={{ padding: 16, paddingBottom: 32, flexGrow: 1 }}
-                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0B4D26']} />}
+                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#34643F']} />}
                 >
-                    {error ? (
-                        <View className="flex-1 items-center justify-center px-6">
-                            <Ionicons name="cloud-offline-outline" size={56} color="#9CA3AF" />
-                            <Text className="text-gray-700 font-semibold text-base mt-4 text-center">Couldn't load recommendations</Text>
-                            <Text className="text-gray-500 text-sm mt-1 text-center">{error}</Text>
-                            <TouchableOpacity
-                                onPress={onRefresh}
-                                className="bg-[#0B4D26] rounded-xl px-6 py-3 mt-5"
-                            >
-                                <Text className="text-white font-semibold">Try Again</Text>
-                            </TouchableOpacity>
+                    {/* Farm switcher: each farm has independent recommendations */}
+                    {farms.length > 1 && (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4 -mx-1">
+                            {farms.map(farm => {
+                                const isSelected = farm.id === selectedFarmId;
+                                return (
+                                    <TouchableOpacity
+                                        key={farm.id}
+                                        onPress={() => switchFarm(farm)}
+                                        className={`flex-row items-center px-4 py-2 rounded-full mx-1 border ${isSelected ? 'bg-[#34643F] border-[#34643F]' : 'bg-white border-gray-300'}`}
+                                    >
+                                        <Ionicons name="location-outline" size={14} color={isSelected ? '#fff' : '#4B5563'} />
+                                        <Text className={`ml-1 text-sm ${isSelected ? 'text-white font-semibold' : 'text-gray-600'}`}>
+                                            {farm.name}
+                                        </Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </ScrollView>
+                    )}
+
+                    {/* Section title + subtitle (design) */}
+                    <View className="items-center mb-4">
+                        <View className="flex-row items-center">
+                            <Ionicons name={activeCategory.icon} size={18} color="#34643F" />
+                            <Text className="text-[#34643F] font-bold text-base ml-2">{activeCategory.title}</Text>
                         </View>
-                    ) : items.length === 0 ? (
-                        /* Empty state: guide the user to run their first analysis */
-                        <View className="flex-1 items-center justify-center px-6">
-                            <View className="w-24 h-24 rounded-full bg-[#E8F5E9] items-center justify-center">
-                                <Ionicons name="flask-outline" size={44} color="#0B4D26" />
-                            </View>
-                            <Text className="text-gray-900 font-bold text-xl mt-6 text-center">No recommendations yet</Text>
-                            <Text className="text-gray-500 text-sm mt-2 text-center leading-5">
-                                Run your first soil analysis to get crop, fertilizer, irrigation and weather advice tailored to your farm.
+                        <Text className="text-gray-600 text-xs mt-1 text-center">{activeCategory.subtitle}</Text>
+                    </View>
+
+                    {activeItems.length === 0 ? (
+                        <View className="items-center py-10">
+                            <Ionicons name={activeCategory.icon} size={44} color="#C9CFC5" />
+                            <Text className="text-gray-500 text-sm mt-3 text-center">
+                                No {activeCategory.title.toLowerCase()} yet.{'\n'}Run a new analysis to get them.
                             </Text>
-                            <TouchableOpacity
-                                onPress={() => router.push('/NewRecommendation')}
-                                className="bg-[#0B4D26] rounded-xl px-8 py-4 mt-6 flex-row items-center"
-                            >
-                                <Ionicons name="add" size={20} color="white" />
-                                <Text className="text-white font-bold text-base ml-1">Get Recommendations</Text>
-                            </TouchableOpacity>
                         </View>
                     ) : (
                         <>
-                            {/* Headline: primary crop recommendation */}
-                            {primary && (
-                                <View className="bg-[#0B4D26] rounded-2xl p-5 mb-4">
-                                    <Text className="text-white/70 text-xs font-semibold uppercase">Best Match</Text>
-                                    <Text className="text-white text-2xl font-bold mt-1 capitalize">{primary.title}</Text>
-                                    {primary.payload?.confidence != null && (
-                                        <Text className="text-emerald-200 text-sm font-semibold mt-1">
-                                            {Math.round(Number(primary.payload.confidence) * (Number(primary.payload.confidence) <= 1 ? 100 : 1))}% confidence
-                                        </Text>
-                                    )}
-                                    <Text className="text-white/60 text-xs mt-2">
-                                        {new Date(primary.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}
-                                    </Text>
+                            {/* Choice selector when the model returned ranked alternatives (design) */}
+                            {activeItems.length > 1 && (
+                                <View className="flex-row justify-center mb-4">
+                                    {activeItems.map((_, index) => (
+                                        <TouchableOpacity
+                                            key={index}
+                                            onPress={() => setChoiceIndex(index)}
+                                            className="px-4 py-1"
+                                        >
+                                            <Text className={`text-sm font-semibold ${choiceIndex === index ? 'text-[#34643F] underline' : 'text-gray-400'}`}>
+                                                Choice {index + 1}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
                                 </View>
                             )}
 
-                            {/* Grouped recommendation sections */}
-                            {grouped.map(({ type, items: groupItems }) => {
-                                const meta = TYPE_META[type] || TYPE_META.general;
-                                return (
-                                    <View key={type} className="mb-3">
-                                        <Text className="text-gray-800 font-bold text-base mb-2">{meta.title}</Text>
-                                        {groupItems.map(item => {
-                                            const isExpanded = expanded === item.id;
-                                            return (
-                                                <View key={item.id} className="mb-2">
-                                                    <TouchableOpacity
-                                                        onPress={() => setExpanded(prev => (prev === item.id ? null : item.id))}
-                                                        className="flex-row items-center bg-white px-4 py-3.5 rounded-xl border border-gray-200/80 shadow-sm"
-                                                        activeOpacity={0.85}
-                                                    >
-                                                        <Ionicons name={meta.icon} size={22} color="#0B4D26" />
-                                                        <View className="flex-1 ml-3">
-                                                            <Text className="text-[15px] font-medium text-gray-800 capitalize">{item.title}</Text>
-                                                            {type === 'disease' && (
-                                                                <Text className="text-gray-400 text-xs mt-0.5">Informational — satellite data coming soon</Text>
-                                                            )}
-                                                        </View>
-                                                        {item.isPrimary && (
-                                                            <View className="bg-[#E8F5E9] rounded-full px-2 py-0.5 mr-2">
-                                                                <Text className="text-[#0B4D26] text-[10px] font-bold">TOP</Text>
-                                                            </View>
-                                                        )}
-                                                        <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={20} color="#666" />
-                                                    </TouchableOpacity>
-                                                    {isExpanded && (
-                                                        <View className="bg-white rounded-b-xl -mt-1 px-4 py-3 border border-t-0 border-gray-200/80 mx-0.5">
-                                                            <PayloadRows payload={item.payload} />
-                                                            <Text className="text-gray-400 text-xs mt-2">
-                                                                {new Date(item.createdAt).toLocaleString()}
-                                                            </Text>
-                                                        </View>
-                                                    )}
-                                                </View>
-                                            );
-                                        })}
-                                    </View>
-                                );
-                            })}
+                            {activeItem && (
+                                <>
+                                    {/* Headline card: the recommendation title */}
+                                    <FieldCard label={activeType === 'crop' ? 'Best Crop' : 'Recommendation'} value={activeItem.title} />
 
-                            <TouchableOpacity
-                                onPress={() => router.push('/NewRecommendation')}
-                                className="border border-[#0B4D26] rounded-xl py-3.5 mt-2 flex-row items-center justify-center"
-                            >
-                                <Ionicons name="add" size={18} color="#0B4D26" />
-                                <Text className="text-[#0B4D26] font-bold ml-1">Run New Analysis</Text>
-                            </TouchableOpacity>
+                                    {/* One card per payload field (design) */}
+                                    {activeItem.payload && typeof activeItem.payload === 'object' &&
+                                        Object.entries(activeItem.payload).map(([key, value]) => {
+                                            if (value != null && typeof value === 'object' && !Array.isArray(value)) {
+                                                return (
+                                                    <View key={key} className="bg-white rounded-xl border border-gray-200/90 shadow-sm px-4 py-3 mb-3">
+                                                        <Text className="text-[#34643F] font-bold text-[13px] mb-1.5">{humanize(key)} :</Text>
+                                                        {Object.entries(value).map(([subKey, subValue]) => (
+                                                            <View key={subKey} className="flex-row justify-between py-0.5">
+                                                                <Text className="text-gray-600 text-sm">{humanize(subKey)}</Text>
+                                                                <Text className="text-gray-900 text-sm font-medium flex-shrink ml-2 text-right">{formatValue(subValue)}</Text>
+                                                            </View>
+                                                        ))}
+                                                    </View>
+                                                );
+                                            }
+                                            return <FieldCard key={key} label={humanize(key)} value={formatValue(value)} />;
+                                        })}
+
+                                    {activeType === 'disease' && (
+                                        <Text className="text-gray-400 text-xs text-center mt-1 mb-2">
+                                            Informational only — satellite data coming soon
+                                        </Text>
+                                    )}
+
+                                    <Text className="text-gray-400 text-xs text-center mt-2">
+                                        {new Date(activeItem.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}
+                                    </Text>
+                                </>
+                            )}
                         </>
                     )}
                 </ScrollView>
             )}
+
+            {/* New analysis button - floating, list view only */}
+            {view === 'list' && (
+                <TouchableOpacity
+                    onPress={() => setView('form')}
+                    className="absolute bottom-6 right-5 bg-[#34643F] w-14 h-14 rounded-full items-center justify-center shadow-lg"
+                    activeOpacity={0.85}
+                >
+                    <Ionicons name="add" size={30} color="white" />
+                </TouchableOpacity>
+            )}
+        </View>
+    );
+}
+
+function FieldCard({ label, value }: { label: string; value: string }) {
+    return (
+        <View className="bg-white rounded-xl border border-gray-200/90 shadow-sm px-4 py-3 mb-3">
+            <Text className="text-[#34643F] font-bold text-[13px] mb-1">{label} :</Text>
+            <Text className="text-gray-800 text-sm capitalize">{value}</Text>
         </View>
     );
 }

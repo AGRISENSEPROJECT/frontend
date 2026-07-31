@@ -165,12 +165,13 @@ export default function RegisterFarm() {
                 return;
             }
         } else if (step === 2) {
-            if (!formData.country || !formData.province || !formData.district) {
+            // The backend requires the full location down to village
+            if (!formData.country || !formData.province || !formData.district || !formData.sector || !formData.cell || !formData.village) {
                 setStatusModal({
                     visible: true,
                     type: 'info',
                     title: 'Required Fields',
-                    message: 'Please fill in all location fields to continue',
+                    message: 'Please fill in all location fields (including sector, cell and village) to continue',
                 });
                 return;
             }
@@ -184,12 +185,13 @@ export default function RegisterFarm() {
     };
 
     const handleFinish = async () => {
-        if (!formData.ownerName || !formData.phoneNumber) {
+        // The backend requires ownerName and ownerEmail (phone is optional)
+        if (!formData.ownerName || !formData.emailAddress) {
             setStatusModal({
                 visible: true,
                 type: 'info',
                 title: 'Required Fields',
-                message: 'Please fill in owner details to complete registration',
+                message: 'Please fill in the owner name and email address to complete registration',
             });
             return;
         }
@@ -393,24 +395,37 @@ export default function RegisterFarm() {
                             </View>
                         )}
 
-                        <TouchableOpacity
-                            style={[styles.dropdownTrigger, !formData.province && styles.disabledDropdown]}
-                            onPress={() => formData.province && toggleDropdown('district')}
-                            disabled={!formData.province}
-                        >
-                            <Text style={formData.district ? styles.inputText : styles.placeholderText}>
-                                {formData.district || 'District'}
-                            </Text>
-                            <Ionicons name={dropdowns.district ? "chevron-up" : "chevron-down"} size={20} color="black" />
-                        </TouchableOpacity>
-                        {dropdowns.district && (
-                            <View style={styles.dropdownMenu}>
-                                {getDistricts().map(item => (
-                                    <TouchableOpacity key={item.id} style={styles.dropdownItem} onPress={() => handleSelect('district', item.id, item.label)}>
-                                        <Text>{item.label}</Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
+                        {getDistricts().length > 0 ? (
+                            <>
+                                <TouchableOpacity
+                                    style={[styles.dropdownTrigger, !formData.province && styles.disabledDropdown]}
+                                    onPress={() => formData.province && toggleDropdown('district')}
+                                    disabled={!formData.province}
+                                >
+                                    <Text style={formData.district ? styles.inputText : styles.placeholderText}>
+                                        {formData.district || 'District'}
+                                    </Text>
+                                    <Ionicons name={dropdowns.district ? "chevron-up" : "chevron-down"} size={20} color="black" />
+                                </TouchableOpacity>
+                                {dropdowns.district && (
+                                    <View style={styles.dropdownMenu}>
+                                        {getDistricts().map(item => (
+                                            <TouchableOpacity key={item.id} style={styles.dropdownItem} onPress={() => handleSelect('district', item.id, item.label)}>
+                                                <Text>{item.label}</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                )}
+                            </>
+                        ) : (
+                            <TextInput
+                                style={[styles.input, !formData.province && styles.disabledDropdown]}
+                                placeholder="District"
+                                placeholderTextColor="#6B7280"
+                                editable={!!formData.province}
+                                value={formData.district}
+                                onChangeText={(text) => setFormData(prev => ({ ...prev, district: text }))}
+                            />
                         )}
 
                         {getSectors().length > 0 ? (
@@ -530,7 +545,7 @@ export default function RegisterFarm() {
 
                         <TextInput
                             style={styles.input}
-                            placeholder="Phone Number"
+                            placeholder="Phone Number (Optional)"
                             keyboardType="phone-pad"
                             value={formData.phoneNumber}
                             onChangeText={(text) => setFormData({ ...formData, phoneNumber: text })}
@@ -538,8 +553,9 @@ export default function RegisterFarm() {
 
                         <TextInput
                             style={styles.input}
-                            placeholder="Email Address (Optional)"
+                            placeholder="Email Address"
                             keyboardType="email-address"
+                            autoCapitalize="none"
                             value={formData.emailAddress}
                             onChangeText={(text) => setFormData({ ...formData, emailAddress: text })}
                         />

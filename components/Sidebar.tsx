@@ -10,9 +10,7 @@ import StatusModal from '@/components/ui/StatusModal';
 const menuItems = [
     { icon: 'grid-outline', label: 'Dashboard', route: '/(main)/dashboard' as const },
     { icon: 'add-circle-outline', label: 'Register Farm', route: '/RegisterFarm' as const },
-    { icon: 'flask-outline', label: 'New Analysis', route: '/NewRecommendation' as const },
     { icon: 'star-outline', label: 'Recommends', route: '/recommends' as const },
-    { icon: 'calendar-outline', label: 'Schedule', route: '/(main)/schedule' as const },
     { icon: 'cloudy-outline', label: 'Weather', route: '/(main)/weather' as const },
     { icon: 'people-outline', label: 'Community', route: '/(main)/community' as const },
     { icon: 'settings-outline', label: 'Settings', route: '/(main)/settings' as const },

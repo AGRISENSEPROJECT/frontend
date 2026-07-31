@@ -42,7 +42,6 @@ export default function RootLayout() {
                 <Stack.Screen name="ResultsPage" options={{ headerShown: false }} />
                 <Stack.Screen name="DataScanned" options={{ headerShown: false }} />
                 <Stack.Screen name="recommends" options={{ headerShown: false }} />
-                <Stack.Screen name="NewRecommendation" options={{ headerShown: false }} />
                 <Stack.Screen name="CropRecommendation" options={{ headerShown: false }} />
                 <Stack.Screen name="IrrigationRecommendation" options={{ headerShown: false }} />
                 <Stack.Screen name="PestDiseaseRecommendation" options={{ headerShown: false }} />
