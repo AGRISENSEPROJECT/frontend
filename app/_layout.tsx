@@ -37,10 +37,7 @@ export default function RootLayout() {
                 <Stack.Screen name="signup" options={{ headerShown: false }} />
                 <Stack.Screen name="signin" options={{ headerShown: false }} />
                 <Stack.Screen name="verifyEmail" options={{ headerShown: false }} />
-                <Stack.Screen name="SoilDetection" options={{ headerShown: false }} />
                 <Stack.Screen name="(main)" options={{ headerShown: false }} />
-                <Stack.Screen name="SoilDetectionProcess" options={{ headerShown: false }} />
-                <Stack.Screen name="DeviceConnection" options={{ headerShown: false }} />
                 <Stack.Screen name="SoilDetails" options={{ headerShown: false }} />
                 <Stack.Screen name="ResultsPage" options={{ headerShown: false }} />
                 <Stack.Screen name="DataScanned" options={{ headerShown: false }} />
@@ -50,7 +47,6 @@ export default function RootLayout() {
                 <Stack.Screen name="PestDiseaseRecommendation" options={{ headerShown: false }} />
                 <Stack.Screen name="FertilizerRecommendation" options={{ headerShown: false }} />
                 <Stack.Screen name="WeatherRecommendation" options={{ headerShown: false }} />
-                <Stack.Screen name="MethodSelection" options={{ headerShown: false }} />
                 <Stack.Screen name="ImageCapture" options={{ headerShown: false }} />
                 <Stack.Screen name="camera-demo" options={{ headerShown: false }} />
                 <Stack.Screen name="RegisterFarm" options={{ headerShown: false }} />

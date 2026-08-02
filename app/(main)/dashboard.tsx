@@ -1,62 +1,73 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TextInput, Image, TouchableOpacity, ActivityIndicator, Modal, StyleSheet } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, ScrollView, TextInput, Image, TouchableOpacity, ActivityIndicator, Modal, StyleSheet, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Location from 'expo-location';
 import { useSidebar } from '../../context/SidebarContext';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { authApi } from '@/services/api';
+import { authApi, predictionsApi, userHasFarm } from '@/services/api';
+import PayloadRows, { formatValue, humanize } from '@/components/recommendations/PayloadRows';
 
+const TABS = ['Overview', 'Soil status', 'Weather', 'Recommend', 'Irrigation', 'Pest/Disease'];
+
+const carouselItems = [
+    { image: require('../../assets/latest-update.png'), title: 'Get to know your soil' },
+    { image: require('../../assets/latest-update.png'), title: 'Smart crop suggestions' },
+    { image: require('../../assets/latest-update.png'), title: 'Weather-aware farming' },
+];
 
 export default function Dashboard() {
-    const [location, setLocation] = useState('Fetching location...');
-    const [district, setDistrict] = useState('Fetching district...');
     const [currentIndex, setCurrentIndex] = useState(0);
     const [activeTab, setActiveTab] = useState('Overview');
     const [userData, setUserData] = useState<any>(null);
     const [farmData, setFarmData] = useState<any>(null);
     const [farms, setFarms] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [farmModalVisible, setFarmModalVisible] = useState(false);
     const [expandedCard, setExpandedCard] = useState<string | null>(null);
+    const [latestRun, setLatestRun] = useState<any>(null);
+    const [loadingRun, setLoadingRun] = useState(false);
     const { toggleSidebar } = useSidebar();
 
     const toggleAccordion = (key: string) => {
         setExpandedCard((prev) => (prev === key ? null : key));
     };
 
-    const fetchFarmDetails = async () => {
+    const fetchLatestRun = useCallback(async (farmId: string) => {
+        setLoadingRun(true);
+        try {
+            const response = await predictionsApi.getRuns({ farmId, limit: 5 });
+            const runs = response.items || response.runs || [];
+            const successRun = runs.find((run: any) => run.status === 'success') || null;
+            setLatestRun(successRun);
+        } catch (error) {
+            console.error('Error fetching latest run:', error);
+            setLatestRun(null);
+        } finally {
+            setLoadingRun(false);
+        }
+    }, []);
+
+    const fetchFarmDetails = useCallback(async () => {
         try {
             const response = await authApi.getFarms();
             if (response.farms && response.farms.length > 0) {
                 setFarms(response.farms);
-                // Set the first farm as default or use a stored preference
                 const preferredFarmId = await AsyncStorage.getItem('preferredFarmId');
                 const selectedFarm = response.farms.find((f: any) => f.id === preferredFarmId) || response.farms[0];
                 setFarmData(selectedFarm);
+                fetchLatestRun(selectedFarm.id);
             }
         } catch (error) {
             console.error('Error fetching farm details:', error);
         }
-    };
+    }, [fetchLatestRun]);
 
     const switchFarm = async (farm: any) => {
         setFarmData(farm);
         await AsyncStorage.setItem('preferredFarmId', farm.id);
+        fetchLatestRun(farm.id);
     };
-
-    const carouselItems = [
-        { image: require('../../assets/latest-update.png'), title: 'Get to know your soil' },
-        { image: require('../../assets/latest-update.png'), title: 'More updates' },
-        { image: require('../../assets/latest-update.png'), title: 'Additional update 1' },
-        { image: require('../../assets/latest-update.png'), title: 'Additional update 2' },
-        { image: require('../../assets/latest-update.png'), title: 'Additional update 1' },
-        { image: require('../../assets/latest-update.png'), title: 'Additional update 2' },
-        { image: require('../../assets/latest-update.png'), title: 'Additional update 1' },
-        { image: require('../../assets/latest-update.png'), title: 'Additional update 2' },
-        { image: require('../../assets/latest-update.png'), title: 'Additional update 1' },
-        { image: require('../../assets/latest-update.png'), title: 'Additional update 2' },
-    ];
 
     useEffect(() => {
         const loadUserData = async () => {
@@ -71,21 +82,34 @@ export default function Dashboard() {
 
                 const user = JSON.parse(userJson);
 
-                // Security Check: Verification
                 if (!user.isEmailVerified) {
                     router.replace(`/verifyEmail?email=${encodeURIComponent(user.email)}&userId=${user.id}`);
                     return;
                 }
 
-                // Security Check: Farm Registration
+                // The cached user can be stale (e.g. farm created after login),
+                // so confirm with the farms API before redirecting to farm creation.
                 const skipFarm = await AsyncStorage.getItem('skipFarm');
-                if (!user.hasFarm && !user.farm && skipFarm !== 'true') {
+                let hasFarm = userHasFarm(user);
+                if (!hasFarm) {
+                    try {
+                        const farmsResponse = await authApi.getFarms();
+                        const farmList = farmsResponse.farms || [];
+                        hasFarm = farmList.length > 0;
+                        if (hasFarm) {
+                            user.farmsCount = farmList.length;
+                            await AsyncStorage.setItem('user', JSON.stringify(user));
+                        }
+                    } catch (error) {
+                        console.error('Error checking farms:', error);
+                    }
+                }
+                if (!hasFarm && skipFarm !== 'true') {
                     router.replace('/RegisterFarm');
                     return;
                 }
 
                 setUserData(user);
-                // Fetch latest farm details
                 fetchFarmDetails();
             } catch (error) {
                 console.error('Error loading user data:', error);
@@ -96,122 +120,167 @@ export default function Dashboard() {
 
         loadUserData();
 
-        (async () => {
-            let { status } = await Location.requestForegroundPermissionsAsync();
-            if (status !== 'granted') {
-                setLocation('Permission denied');
-                return;
-            }
-
-            let location = await Location.getCurrentPositionAsync({});
-            const { latitude, longitude } = location.coords;
-            const response = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`);
-            const data = await response.json();
-            setLocation(`${data.city}, ${data.countryName}`);
-            setDistrict(data.locality || 'District unavailable');
-        })();
-
         const interval = setInterval(() => {
             setCurrentIndex((prevIndex) => (prevIndex + 1) % carouselItems.length);
         }, 3000);
 
         return () => clearInterval(interval);
-    }, []);
+    }, [fetchFarmDetails]);
+
+    const onRefresh = async () => {
+        setRefreshing(true);
+        await fetchFarmDetails();
+        setRefreshing(false);
+    };
+
+    const recommendations: any[] = latestRun?.recommendations || [];
+    const recsOfType = (type: string) => recommendations.filter(rec => rec.type === type);
+    const summary = latestRun?.predictionSummary || {};
+    const soilScan = latestRun?.soilScan || null;
+
+    const EmptyRecommendations = () => (
+        <View className="bg-white rounded-xl p-6 border border-gray-200 items-center" style={styles.cardShadow}>
+            <View className="w-14 h-14 rounded-full bg-[#E8F5E9] items-center justify-center">
+                <Ionicons name="flask-outline" size={26} color="#0B4D26" />
+            </View>
+            <Text className="text-gray-900 font-bold text-base mt-3">No recommendations yet</Text>
+            <Text className="text-gray-500 text-sm text-center mt-1 leading-5">
+                Run a soil analysis to get crop, fertilizer and irrigation advice for your farm.
+            </Text>
+            <TouchableOpacity
+                onPress={() => router.push('/recommends')}
+                className="bg-[#0B4D26] rounded-lg px-6 py-3 mt-4"
+            >
+                <Text className="text-white font-bold">Get Recommendations</Text>
+            </TouchableOpacity>
+        </View>
+    );
+
+    const RecommendationAccordions = ({ recs, keyPrefix }: { recs: any[]; keyPrefix: string }) => (
+        <View className="gap-3">
+            {recs.map((rec, index) => (
+                <AccordionCard
+                    key={`${keyPrefix}-${index}`}
+                    title={rec.title}
+                    expanded={expandedCard === `${keyPrefix}-${index}`}
+                    onPress={() => toggleAccordion(`${keyPrefix}-${index}`)}
+                >
+                    <PayloadRows payload={rec.payload} />
+                </AccordionCard>
+            ))}
+            <TouchableOpacity onPress={() => router.push('/recommends')} className="py-2">
+                <Text className="text-green-700 font-semibold text-sm">See all recommendations →</Text>
+            </TouchableOpacity>
+        </View>
+    );
 
     const renderContent = () => {
+        if (loadingRun) {
+            return (
+                <View className="bg-white rounded-xl p-8 border border-gray-200 items-center">
+                    <ActivityIndicator color="#0B4D26" />
+                </View>
+            );
+        }
+
+        if (!latestRun) {
+            return <EmptyRecommendations />;
+        }
+
         switch (activeTab) {
             case 'Overview':
-                return <Text>Overview Content</Text>;
-            case 'Soil status':
                 return (
-                    <View className="bg-white rounded-xl p-4 border border-gray-200/80 shadow-sm">
-                        <Text className="font-semibold text-gray-900 mb-3">Latest Soil Composition</Text>
+                    <View className="bg-white rounded-xl p-4 border border-gray-200" style={styles.cardShadow}>
+                        <Text className="font-semibold text-gray-900 mb-3">Latest Analysis</Text>
                         <View className="gap-2">
-                            <Row icon="checkmark-circle" iconColor="#22C55E" label="Moisture" value="65%" />
-                            <Row icon="checkmark-circle" iconColor="#22C55E" label="pH Level" value="6.8 (neutral)" />
-                            <Row icon="warning" iconColor="#EAB308" label="Nutrients" value="moderate (Needs N boost)" />
-                            <Row icon="close-circle" iconColor="#EF4444" label="Organic Matter" value="4.5%" />
-                            <Row icon="checkmark-circle" iconColor="#22C55E" label="Compaction" value="Low" />
+                            {summary.bestCrop && <Row icon="leaf" iconColor="#22C55E" label="Best Crop" value={String(summary.bestCrop)} />}
+                            {summary.confidence != null && (
+                                <Row icon="analytics" iconColor="#22C55E" label="Confidence"
+                                    value={`${Math.round(Number(summary.confidence) * (Number(summary.confidence) <= 1 ? 100 : 1))}%`} />
+                            )}
+                            {summary.soilTexture && <Row icon="layers" iconColor="#A16207" label="Soil Texture" value={String(summary.soilTexture)} />}
+                            {summary.soilMoisture != null && <Row icon="water" iconColor="#3B82F6" label="Soil Moisture" value={formatValue(summary.soilMoisture)} />}
+                            {summary.fertilizer && <Row icon="nutrition" iconColor="#EAB308" label="Fertilizer" value={String(summary.fertilizer)} />}
+                            {latestRun.executedAt && (
+                                <Row icon="time" iconColor="#6B7280" label="Analyzed"
+                                    value={new Date(latestRun.executedAt).toLocaleDateString()} />
+                            )}
                         </View>
-                        <TouchableOpacity onPress={() => router.push('/DataScanned')} className="mt-3">
-                            <Text className="text-green-700 font-semibold text-sm">Next Check: Read more →</Text>
-                        </TouchableOpacity>
-                    </View>
-                );
-            case 'Weather':
-                return <Text>Weather Content</Text>;
-            case 'Recommend':
-                return (
-                    <View className="gap-3">
-                        <AccordionCard
-                            title="Crop Suggestions"
-                            expanded={expandedCard === 'recommend-crop'}
-                            onPress={() => toggleAccordion('recommend-crop')}
-                        >
-                            <Text className="text-gray-700 text-sm mb-1">Loamy, rich in nitrogen. Moderate to high moisture.</Text>
-                            <Text className="text-gray-700 text-sm mb-1">Warm, humid.</Text>
-                            <Text className="font-medium text-gray-900 mt-2">Possible crops: Rice, Maize, Sugarcane</Text>
-                        </AccordionCard>
-                        <AccordionCard
-                            title="Fertilizer Suggestion"
-                            expanded={expandedCard === 'recommend-fertilizer'}
-                            onPress={() => toggleAccordion('recommend-fertilizer')}
-                        >
-                            <Text className="text-gray-700 text-sm mb-1">Low Nitrogen (N) – Yellowing leaves, stunted growth.</Text>
-                            <Text className="text-gray-700 text-sm mb-1">Nitrogen-rich.</Text>
-                            <Text className="font-medium text-gray-900 mt-2">Possible fertilizers: Urea, Ammonium Nitrate, Compost, Manure</Text>
-                        </AccordionCard>
-                        <TouchableOpacity onPress={() => router.push('/recommends')} className="py-2">
+                        <TouchableOpacity onPress={() => router.push('/recommends')} className="mt-3">
                             <Text className="text-green-700 font-semibold text-sm">See all recommendations →</Text>
                         </TouchableOpacity>
                     </View>
                 );
-            case 'Pest/Disease':
+            case 'Soil status':
                 return (
-                    <View className="gap-3">
-                        <View className="bg-white rounded-xl p-4 border border-gray-200/80 shadow-sm">
-                            <Text className="font-semibold text-gray-900 mb-2">Pest & Disease</Text>
-                            <Text className="text-gray-600 text-sm mb-2">Detect issues early and protect your crops.</Text>
-                            <TouchableOpacity onPress={() => router.push('/PestDiseaseRecommendation')}>
-                                <Text className="text-green-700 font-semibold text-sm">View recommendations →</Text>
-                            </TouchableOpacity>
-                        </View>
+                    <View className="bg-white rounded-xl p-4 border border-gray-200" style={styles.cardShadow}>
+                        <Text className="font-semibold text-gray-900 mb-3">Latest Soil Composition</Text>
+                        {soilScan ? (
+                            <View className="gap-1">
+                                {Object.entries(soilScan)
+                                    .filter(([key, value]) =>
+                                        value != null && value !== '' &&
+                                        !['id', 'farmId', 'imageUrl', 'createdAt', 'updatedAt'].includes(key) &&
+                                        typeof value !== 'object')
+                                    .map(([key, value]) => (
+                                        <View key={key} className="flex-row justify-between py-1">
+                                            <Text className="text-gray-700">{humanize(key)}</Text>
+                                            <Text className="text-gray-900 font-medium">{formatValue(value)}</Text>
+                                        </View>
+                                    ))}
+                            </View>
+                        ) : (
+                            <Text className="text-gray-500 text-sm">No soil scan data in the latest analysis.</Text>
+                        )}
                     </View>
                 );
-            case 'Irrigation':
-                return (
-                    <View className="gap-3">
-                        <AccordionCard
-                            title="Soil Moisture Level"
-                            expanded={expandedCard === 'irrigation-moisture'}
-                            onPress={() => toggleAccordion('irrigation-moisture')}
-                        >
-                            <Text className="text-red-600 text-sm font-medium mb-1">Status: Soil moisture is 15% (Too Dry)</Text>
-                            <Text className="text-amber-600 text-sm mb-1">Alert: Low moisture detected! Water is needed to prevent plant stress.</Text>
-                            <Text className="text-green-700 text-sm">Suggested Action: Irrigate within the next 6 hours to maintain optimal soil moisture.</Text>
-                        </AccordionCard>
-                        <AccordionCard
-                            title="Irrigation Scheduling"
-                            expanded={expandedCard === 'irrigation-scheduling'}
-                            onPress={() => toggleAccordion('irrigation-scheduling')}
-                        >
-                            <Text className="text-gray-700 text-sm mb-1">Weather Forecast: High temperature (30°C)</Text>
-                            <Text className="text-gray-700 text-sm mb-1">Irrigation Time: Early morning (5–7 AM), Late evening (6–8 PM)</Text>
-                        </AccordionCard>
-                        <TouchableOpacity onPress={() => router.push('/DataScanned')} className="py-2">
-                            <Text className="text-green-700 font-semibold text-sm">View full report →</Text>
-                        </TouchableOpacity>
+            case 'Weather': {
+                const recs = recsOfType('weather');
+                return recs.length > 0
+                    ? <RecommendationAccordions recs={recs} keyPrefix="weather" />
+                    : <NoTabData label="weather" />;
+            }
+            case 'Recommend': {
+                const recs = [...recsOfType('crop'), ...recsOfType('fertilizer'), ...recsOfType('general')];
+                return recs.length > 0
+                    ? <RecommendationAccordions recs={recs} keyPrefix="recommend" />
+                    : <NoTabData label="crop and fertilizer" />;
+            }
+            case 'Irrigation': {
+                const recs = recsOfType('irrigation');
+                return recs.length > 0
+                    ? <RecommendationAccordions recs={recs} keyPrefix="irrigation" />
+                    : <NoTabData label="irrigation" />;
+            }
+            case 'Pest/Disease': {
+                const recs = recsOfType('disease');
+                return recs.length > 0 ? (
+                    <View>
+                        <RecommendationAccordions recs={recs} keyPrefix="disease" />
+                        <Text className="text-gray-400 text-xs mt-2 text-center">Informational only — satellite data coming soon</Text>
                     </View>
-                );
+                ) : <NoTabData label="pest & disease" />;
+            }
             default:
                 return null;
         }
     };
 
+    const NoTabData = ({ label }: { label: string }) => (
+        <View className="bg-white rounded-xl p-5 border border-gray-200 items-center" style={styles.cardShadow}>
+            <Text className="text-gray-500 text-sm text-center">
+                No {label} recommendations in your latest analysis.
+            </Text>
+            <TouchableOpacity onPress={() => router.push('/recommends')} className="mt-2">
+                <Text className="text-green-700 font-semibold text-sm">Run a new analysis →</Text>
+            </TouchableOpacity>
+        </View>
+    );
+
     const AccordionCard = ({ title, expanded, onPress, children }: { title: string; expanded: boolean; onPress: () => void; children: React.ReactNode }) => (
-        <View className="bg-white rounded-xl border border-gray-200/80 shadow-sm overflow-hidden">
+        <View className="bg-white rounded-xl border border-gray-200 overflow-hidden" style={styles.cardShadow}>
             <TouchableOpacity className="flex-row justify-between items-center p-4" onPress={onPress} activeOpacity={0.8}>
-                <Text className="font-semibold text-gray-900">{title}</Text>
+                <Text className="font-semibold text-gray-900 capitalize flex-1">{title}</Text>
                 <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={22} color="#666" />
             </TouchableOpacity>
             {expanded && <View className="px-4 pb-4 pt-0">{children}</View>}
@@ -224,13 +293,24 @@ export default function Dashboard() {
                 <Ionicons name={icon as any} size={18} color={iconColor} style={{ marginRight: 8 }} />
                 <Text className="text-gray-700">{label}:</Text>
             </View>
-            <Text className="text-gray-900 font-medium">{value}</Text>
+            <Text className="text-gray-900 font-medium capitalize">{value}</Text>
         </View>
     );
 
+    if (loading) {
+        return (
+            <View className="flex-1 items-center justify-center bg-[#FAF9F6]">
+                <ActivityIndicator size="large" color="#0B4D26" />
+            </View>
+        );
+    }
+
     return (
         <View className="flex-1 bg-[#FAF9F6]">
-            <ScrollView className="flex-1">
+            <ScrollView
+                className="flex-1"
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0B4D26']} />}
+            >
                 {/* Header */}
                 <View className="bg-green-800 py-6 px-4">
                     <View className="flex-row justify-between items-center">
@@ -239,30 +319,25 @@ export default function Dashboard() {
                         </TouchableOpacity>
                         <View className="items-center">
                             <TouchableOpacity
-                                onPress={() => farms.length > 1 && setFarmModalVisible(true)}
+                                onPress={() => setFarmModalVisible(true)}
                                 className="flex-row items-center"
-                                disabled={farms.length <= 1}
+                                disabled={farms.length === 0}
                             >
                                 <Ionicons name="location-outline" size={20} color="white" style={{ marginRight: 5 }} />
-                                <Text className="text-white font-medium">{farmData?.name || location}</Text>
-                                {farms.length > 1 && <Ionicons name="chevron-down" size={16} color="white" style={{ marginLeft: 5 }} />}
+                                <Text className="text-white font-medium">{farmData?.name || 'My Farm'}</Text>
+                                {farms.length > 0 && <Ionicons name="chevron-down" size={16} color="white" style={{ marginLeft: 5 }} />}
                             </TouchableOpacity>
-                            <Text className="text-white text-xs opacity-80">
-                                {farmData ? `${farmData.district}, ${farmData.province || ''}` : 'Welcome, ' + userData?.username}
+                            <Text className="text-white text-xs" style={{ opacity: 0.8 }}>
+                                {farmData ? `${farmData.district}${farmData.province ? `, ${farmData.province}` : ''}` : `Welcome, ${userData?.username || ''}`}
                             </Text>
                         </View>
-                        <View className="flex-row items-center space-x-4">
+                        <View className="flex-row items-center">
                             <TouchableOpacity
                                 onPress={() => router.push('/RegisterFarm')}
-                                className="bg-white/20 p-2 rounded-full mr-2"
+                                className="p-2 rounded-full mr-2"
+                                style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
                             >
                                 <Ionicons name="add" size={20} color="white" />
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                onPress={() => router.push('/(main)/camera')}
-                                className="bg-white/20 p-2 rounded-full"
-                            >
-                                <Ionicons name="camera" size={20} color="white" />
                             </TouchableOpacity>
                             <Ionicons name="notifications-outline" size={24} color="white" />
                         </View>
@@ -283,7 +358,7 @@ export default function Dashboard() {
                 <View className="p-4">
                     <View className="flex-row justify-between items-center">
                         <Text className="text-lg font-bold">#Latest Update</Text>
-                        <TouchableOpacity onPress={() => router.push('/SoilDetection')}>
+                        <TouchableOpacity onPress={() => router.push('/recommends')}>
                             <Text className="text-green-700 font-semibold">See all</Text>
                         </TouchableOpacity>
                     </View>
@@ -297,6 +372,7 @@ export default function Dashboard() {
                             setCurrentIndex(index);
                         }}
                         scrollEventThrottle={16}
+                        className="mt-2"
                     >
                         {carouselItems.map((item, index) => (
                             <View key={index} className="w-64 h-36 mr-2">
@@ -315,72 +391,37 @@ export default function Dashboard() {
                 </View>
 
                 {/* Recommended For You */}
-                <View className="p-4">
+                <View className="px-4">
                     <View className="flex-row justify-between items-center">
                         <Text className="text-lg font-bold">Recommended For You</Text>
-                        <Text className="text-green-700">See all</Text>
+                        <TouchableOpacity onPress={() => router.push('/recommends')}>
+                            <Text className="text-green-700">See all</Text>
+                        </TouchableOpacity>
                     </View>
-                    <ScrollView horizontal className="mt-2">
-                        {['Overview', 'Soil status', 'Weather', 'Recommend', 'Irrigation', 'Pest/Disease'].map((tab) => (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-2">
+                        {TABS.map((tab) => (
                             <TouchableOpacity
                                 key={tab}
-                                className={`p-2 rounded-lg mr-2 ${activeTab === tab ? 'bg-green-200' : 'bg-gray-200'}`}
+                                className={`p-2 px-3 rounded-lg mr-2 ${activeTab === tab ? 'bg-green-200' : 'bg-gray-200'}`}
                                 onPress={() => setActiveTab(tab)}
                             >
-                                <Text>{tab}</Text>
+                                <Text className={activeTab === tab ? 'font-semibold text-green-900' : 'text-gray-700'}>{tab}</Text>
                             </TouchableOpacity>
                         ))}
                     </ScrollView>
                 </View>
 
-                {/* Farm A section */}
-                <View className="px-4 pb-2 flex-row justify-between items-center">
-                    <Text className="text-lg font-bold text-gray-900">{farmData?.name || 'Farm A'}</Text>
-                    <TouchableOpacity onPress={() => router.push('/DataScanned')}>
+                {/* Farm section */}
+                <View className="px-4 pt-4 pb-2 flex-row justify-between items-center">
+                    <Text className="text-lg font-bold text-gray-900">{farmData?.name || 'My Farm'}</Text>
+                    <TouchableOpacity onPress={() => router.push('/recommends')}>
                         <Text className="text-green-700 font-semibold">See All</Text>
                     </TouchableOpacity>
                 </View>
 
                 {/* Tab Content */}
-                <View className="p-4">
+                <View className="px-4 pb-8">
                     {renderContent()}
-                </View>
-
-                {/* Hourly Forecast */}
-                <View className="p-4">
-                    <Text className="text-lg font-bold">{district}</Text>
-                    <Text className="text-sm">Hourly Forecast</Text>
-                    <ScrollView horizontal className="mt-2">
-                        <View className="flex items-center mr-4">
-                            <Ionicons name="sunny-outline" size={24} color="black" />
-                            <Text>6:00am</Text>
-                            <Text>28°C</Text>
-                        </View>
-                        <View className="flex items-center mr-4">
-                            <Ionicons name="cloud-outline" size={24} color="black" />
-                            <Text>6:00am</Text>
-                            <Text>28°C</Text>
-                        </View>
-                        <View className="flex items-center mr-4">
-                            <Ionicons name="rainy-outline" size={24} color="black" />
-                            <Text>6:00am</Text>
-                            <Text>28°C</Text>
-                        </View>
-                        <View className="flex items-center mr-4">
-                            <Ionicons name="partly-sunny-outline" size={24} color="black" />
-                            <Text>6:00am</Text>
-                            <Text>28°C</Text>
-                        </View>
-                    </ScrollView>
-                </View>
-
-                {/* Yesterday's Weather */}
-                <View className="p-4">
-                    <View className="bg-white p-4 rounded-lg shadow">
-                        <Text className="text-sm">Yesterday</Text>
-                        <Text className="text-lg font-bold">Light rain showers</Text>
-                        <Text className="text-sm">17° ↑ 10° ↓</Text>
-                    </View>
                 </View>
             </ScrollView>
 
@@ -442,6 +483,15 @@ export default function Dashboard() {
 }
 
 const styles = StyleSheet.create({
+    // Inline shadows avoid a NativeWind + Expo Router race that throws
+    // a misleading "Couldn't find a navigation context" error.
+    cardShadow: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.08,
+        shadowRadius: 2,
+        elevation: 2,
+    },
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0,0,0,0.5)',
@@ -492,10 +542,6 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: '#6B7280',
         marginTop: 2,
-    },
-    activeFarmLocation: {
-        color: '#0B4D26',
-        opacity: 0.8,
     },
     addFarmBtn: {
         flexDirection: 'row',

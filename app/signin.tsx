@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons, AntDesign } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { authApi } from '@/services/api';
+import { authApi, userHasFarm } from '@/services/api';
 import StatusModal from '@/components/ui/StatusModal';
 
 export default function SignIn() {
@@ -65,10 +65,10 @@ export default function SignIn() {
                 await AsyncStorage.setItem('user', JSON.stringify(data.user));
 
                 // Navigate based on user state
-                if (!data.user.hasFarm && !data.user.farm) {
-                    router.push('/RegisterFarm');
-                } else {
+                if (userHasFarm(data.user)) {
                     router.push('/(main)/dashboard');
+                } else {
+                    router.push('/RegisterFarm');
                 }
             }
         } catch (error: any) {
