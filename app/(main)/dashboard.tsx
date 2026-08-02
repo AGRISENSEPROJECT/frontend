@@ -139,7 +139,7 @@ export default function Dashboard() {
     const soilScan = latestRun?.soilScan || null;
 
     const EmptyRecommendations = () => (
-        <View className="bg-white rounded-xl p-6 border border-gray-200/80 shadow-sm items-center">
+        <View className="bg-white rounded-xl p-6 border border-gray-200 items-center" style={styles.cardShadow}>
             <View className="w-14 h-14 rounded-full bg-[#E8F5E9] items-center justify-center">
                 <Ionicons name="flask-outline" size={26} color="#0B4D26" />
             </View>
@@ -177,7 +177,7 @@ export default function Dashboard() {
     const renderContent = () => {
         if (loadingRun) {
             return (
-                <View className="bg-white rounded-xl p-8 border border-gray-200/80 items-center">
+                <View className="bg-white rounded-xl p-8 border border-gray-200 items-center">
                     <ActivityIndicator color="#0B4D26" />
                 </View>
             );
@@ -190,7 +190,7 @@ export default function Dashboard() {
         switch (activeTab) {
             case 'Overview':
                 return (
-                    <View className="bg-white rounded-xl p-4 border border-gray-200/80 shadow-sm">
+                    <View className="bg-white rounded-xl p-4 border border-gray-200" style={styles.cardShadow}>
                         <Text className="font-semibold text-gray-900 mb-3">Latest Analysis</Text>
                         <View className="gap-2">
                             {summary.bestCrop && <Row icon="leaf" iconColor="#22C55E" label="Best Crop" value={String(summary.bestCrop)} />}
@@ -213,7 +213,7 @@ export default function Dashboard() {
                 );
             case 'Soil status':
                 return (
-                    <View className="bg-white rounded-xl p-4 border border-gray-200/80 shadow-sm">
+                    <View className="bg-white rounded-xl p-4 border border-gray-200" style={styles.cardShadow}>
                         <Text className="font-semibold text-gray-900 mb-3">Latest Soil Composition</Text>
                         {soilScan ? (
                             <View className="gap-1">
@@ -267,7 +267,7 @@ export default function Dashboard() {
     };
 
     const NoTabData = ({ label }: { label: string }) => (
-        <View className="bg-white rounded-xl p-5 border border-gray-200/80 shadow-sm items-center">
+        <View className="bg-white rounded-xl p-5 border border-gray-200 items-center" style={styles.cardShadow}>
             <Text className="text-gray-500 text-sm text-center">
                 No {label} recommendations in your latest analysis.
             </Text>
@@ -278,7 +278,7 @@ export default function Dashboard() {
     );
 
     const AccordionCard = ({ title, expanded, onPress, children }: { title: string; expanded: boolean; onPress: () => void; children: React.ReactNode }) => (
-        <View className="bg-white rounded-xl border border-gray-200/80 shadow-sm overflow-hidden">
+        <View className="bg-white rounded-xl border border-gray-200 overflow-hidden" style={styles.cardShadow}>
             <TouchableOpacity className="flex-row justify-between items-center p-4" onPress={onPress} activeOpacity={0.8}>
                 <Text className="font-semibold text-gray-900 capitalize flex-1">{title}</Text>
                 <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={22} color="#666" />
@@ -327,14 +327,15 @@ export default function Dashboard() {
                                 <Text className="text-white font-medium">{farmData?.name || 'My Farm'}</Text>
                                 {farms.length > 0 && <Ionicons name="chevron-down" size={16} color="white" style={{ marginLeft: 5 }} />}
                             </TouchableOpacity>
-                            <Text className="text-white text-xs opacity-80">
+                            <Text className="text-white text-xs" style={{ opacity: 0.8 }}>
                                 {farmData ? `${farmData.district}${farmData.province ? `, ${farmData.province}` : ''}` : `Welcome, ${userData?.username || ''}`}
                             </Text>
                         </View>
                         <View className="flex-row items-center">
                             <TouchableOpacity
                                 onPress={() => router.push('/RegisterFarm')}
-                                className="bg-white/20 p-2 rounded-full mr-2"
+                                className="p-2 rounded-full mr-2"
+                                style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
                             >
                                 <Ionicons name="add" size={20} color="white" />
                             </TouchableOpacity>
@@ -482,6 +483,15 @@ export default function Dashboard() {
 }
 
 const styles = StyleSheet.create({
+    // Inline shadows avoid a NativeWind + Expo Router race that throws
+    // a misleading "Couldn't find a navigation context" error.
+    cardShadow: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.08,
+        shadowRadius: 2,
+        elevation: 2,
+    },
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0,0,0,0.5)',

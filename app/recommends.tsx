@@ -267,7 +267,7 @@ export default function Recommends() {
                                         {entries.map(([key, value]) => {
                                             if (value != null && typeof value === 'object' && !Array.isArray(value)) {
                                                 return (
-                                                    <View key={key} className="bg-white rounded-xl border border-gray-200/90 shadow-sm px-4 py-3 mb-3">
+                                                    <View key={key} className="bg-white rounded-xl border border-gray-200 px-4 py-3 mb-3" style={cardShadow}>
                                                         <Text className="text-[#34643F] font-bold text-[13px] mb-1.5">{humanize(key)} :</Text>
                                                         {Object.entries(value).map(([subKey, subValue]) => (
                                                             <View key={subKey} className="flex-row justify-between py-0.5">
@@ -302,7 +302,8 @@ export default function Recommends() {
             {view === 'list' && (
                 <TouchableOpacity
                     onPress={() => setView('form')}
-                    className="absolute bottom-6 right-5 bg-[#34643F] w-14 h-14 rounded-full items-center justify-center shadow-lg"
+                    className="absolute bottom-6 right-5 bg-[#34643F] w-14 h-14 rounded-full items-center justify-center"
+                    style={fabShadow}
                     activeOpacity={0.85}
                 >
                     <Ionicons name="add" size={30} color="white" />
@@ -314,9 +315,27 @@ export default function Recommends() {
 
 function FieldCard({ label, value }: { label: string; value: string }) {
     return (
-        <View className="bg-white rounded-xl border border-gray-200/90 shadow-sm px-4 py-3 mb-3">
+        <View className="bg-white rounded-xl border border-gray-200 px-4 py-3 mb-3" style={cardShadow}>
             <Text className="text-[#34643F] font-bold text-[13px] mb-1">{label} :</Text>
             <Text className="text-gray-800 text-sm capitalize">{value}</Text>
         </View>
     );
 }
+
+// Inline shadows avoid a NativeWind + Expo Router race that throws
+// a misleading "Couldn't find a navigation context" error.
+const cardShadow = {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 2,
+} as const;
+
+const fabShadow = {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 6,
+} as const;
