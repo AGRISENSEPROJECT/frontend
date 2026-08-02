@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { authApi, predictionsApi, Recommendation } from '@/services/api';
 import PredictionForm from '@/components/recommendations/PredictionForm';
-import { humanize, formatEntry, cleanPayload, ErrorNote, formatDate } from '@/components/recommendations/PayloadRows';
+import { humanize, formatEntry, cleanPayload, formatDate } from '@/components/recommendations/PayloadRows';
 import ResultFieldCard, { GrowthScoreBar } from '@/components/recommendations/ResultFieldCard';
 
 const CATEGORIES = [
@@ -30,6 +30,47 @@ function confidenceOf(item: Recommendation): number | null {
     const raw = item.payload?.confidence ?? item.payload?.suitability_score ?? item.payload?.suitabilityScore;
     if (raw == null || Number.isNaN(Number(raw))) return null;
     return Number(raw);
+}
+
+type ResultCard = {
+    label: string;
+    value: string | null;
+    tone?: 'default' | 'warning' | 'muted';
+    fallback?: string;
+};
+
+function cleanText(value: any): string | null {
+    if (value == null) return null;
+    if (typeof value === 'object') return null;
+    const text = formatEntry('value', value).trim();
+    if (!text || text === '-' || /^[^\w\d]+$/.test(text)) return null;
+    return text;
+}
+
+function formatNpkStatus(value: any): string | null {
+    const text = cleanText(value);
+    if (!text) return null;
+    return text
+        .replace(/\bN\s*:/i, 'Nitrogen: ')
+        .replace(/\bP\s*:/i, 'Phosphorus: ')
+        .replace(/\bK\s*:/i, 'Potassium: ')
+        .replace(/,\s*/g, '\n');
+}
+
+function formatWeatherMetric(label: string, value: any, unit = '') {
+    if (value == null || value === '') return null;
+    const formatted = formatEntry(label, value);
+    return `${label}: ${formatted}${unit && !String(formatted).includes(unit) ? unit : ''}`;
+}
+
+function formatWeatherBlock(day: any): string | null {
+    if (!day || typeof day !== 'object') return null;
+    const rows = [
+        formatWeatherMetric('Temperature', day.temp ?? day.temperature, '°C'),
+        formatWeatherMetric('Humidity', day.humidity, '%'),
+        formatWeatherMetric('Rainfall', day.rainfall, ' mm'),
+    ].filter(Boolean);
+    return rows.length > 0 ? rows.join('\n') : null;
 }
 
 /** Keep only the latest prediction run for a type, then unique crop names. */
@@ -85,7 +126,7 @@ function filterActiveItems(items: Recommendation[], type: string): Recommendatio
 function buildCards(item: Recommendation, type: string) {
     const p = item.payload || {};
     const { entries, error } = cleanPayload(p, [item.title, cropName(item)]);
-    const cards: { label: string; value: string | null; tone?: 'default' | 'warning' | 'muted'; fallback?: string }[] = [];
+    const cards: ResultCard[] = [];
 
     if (type === 'crop') {
         const best = cropName(item);
@@ -112,29 +153,20 @@ function buildCards(item: Recommendation, type: string) {
                 value: moisture != null
                     ? `💧 Current Moisture: ${formatEntry('moisture', moisture)}${status ? ` (${status})` : ''}`
                     : status || null,
-                fallback: 'Moisture reading unavailable for this scan',
-            });
-        } else {
-            cards.push({
-                label: 'Soil Moisture Level',
-                value: null,
-                fallback: 'Moisture reading unavailable for this scan',
             });
         }
-        cards.push({
-            label: 'Next Watering Schedule',
-            value: (p.next_irrigation || p.next_watering || p.schedule)
-                ? `🕓 ${formatEntry('next', p.next_irrigation || p.next_watering || p.schedule)}${p.recommended_water_mm != null ? ` | Amount: ${p.recommended_water_mm} mm` : ''}`
-                : null,
-            fallback: 'Schedule not estimated yet — check back after the next analysis',
-        });
-        cards.push({
-            label: 'Rain Prediction',
-            value: (p.rain_prediction || p.rainfall)
-                ? `🌧️ ${formatEntry('rain', p.rain_prediction || p.rainfall)}`
-                : null,
-            fallback: 'Rain outlook not included in this result',
-        });
+        if (p.next_irrigation || p.next_watering || p.schedule) {
+            cards.push({
+                label: 'Next Watering Schedule',
+                value: `🕓 ${formatEntry('next', p.next_irrigation || p.next_watering || p.schedule)}${p.recommended_water_mm != null ? ` | Amount: ${p.recommended_water_mm} mm` : ''}`,
+            });
+        }
+        if (p.rain_prediction || p.rainfall) {
+            cards.push({
+                label: 'Rain Prediction',
+                value: `🌧️ ${formatEntry('rain', p.rain_prediction || p.rainfall)}`,
+            });
+        }
         if (p.tips || p.water_saving_tips) {
             cards.push({ label: 'Water-Saving Tips', value: `💡 ${formatEntry('tips', p.tips || p.water_saving_tips)}` });
         }
@@ -149,75 +181,83 @@ function buildCards(item: Recommendation, type: string) {
     }
 
     if (type === 'fertilizer') {
-        cards.push({
-            label: 'Soil pH Level',
-            value: (p.ph || p.phLevel || p.soil_ph)
-                ? `✔️ pH: ${formatEntry('ph', p.ph || p.phLevel || p.soil_ph)}`
-                : null,
-            fallback: 'pH not reported — lab test recommended for precision',
-        });
-        cards.push({
-            label: 'Soil Nutrients',
-            value: (p.soil_npk_status || p.npk || p.nutrients)
-                ? `🌱 ${formatEntry('npk', p.soil_npk_status || p.npk || p.nutrients)}`
-                : null,
-            fallback: 'NPK breakdown unavailable for this scan',
-        });
-        cards.push({
-            label: 'Recommended Fertilizer',
-            value: (p.recommended_fertilizer || p.fertilizer)
-                ? `🍼 ${formatEntry('fertilizer', p.recommended_fertilizer || p.fertilizer)}`
-                : null,
-            fallback: 'No fertilizer match yet — try adjusting NPK readings',
-        });
-        if (p.organic_alternatives || p.additional_recommendations) {
+        const ph = cleanText(p.ph || p.phLevel || p.soil_ph);
+        const nutrients = formatNpkStatus(p.soil_npk_status || p.npk || p.nutrients);
+        const fertilizer = cleanText(p.recommended_fertilizer || p.fertilizer);
+        const alternatives = cleanText(p.organic_alternatives || p.organicAlternatives);
+        const extraAdvice = cleanText(p.additional_recommendations || p.additionalRecommendations);
+        const description = cleanText(p.description || p.tips || p.soil_improvement_tips || p.soilImprovementTips);
+
+        if (ph) {
             cards.push({
-                label: 'Organic Alternatives',
-                value: `🌿 ${formatEntry('organic', p.organic_alternatives || p.additional_recommendations)}`,
+                label: 'Soil pH Level',
+                value: `pH: ${ph}`,
             });
         }
-        if (p.description || p.tips || p.soil_improvement_tips) {
+        if (nutrients) {
             cards.push({
-                label: 'Soil Improvement Tips',
-                value: `🌾 ${formatEntry('tips', p.description || p.tips || p.soil_improvement_tips)}`,
+                label: 'Nutrient Status',
+                value: nutrients,
+            });
+        }
+        if (fertilizer) {
+            cards.push({
+                label: 'Recommended Fertilizer',
+                value: fertilizer,
+            });
+        }
+        if (alternatives) {
+            cards.push({
+                label: 'Organic Alternatives',
+                value: alternatives,
+            });
+        }
+        if (description) {
+            cards.push({
+                label: 'Why This Helps',
+                value: description,
+            });
+        }
+        if (extraAdvice && extraAdvice !== alternatives && extraAdvice !== description) {
+            cards.push({
+                label: 'Additional Advice',
+                value: extraAdvice,
             });
         }
         return { cards, error, score: confidenceOf(item) };
     }
 
     if (type === 'weather') {
-        if (p.today && typeof p.today === 'object') {
-            const t = p.today;
+        const today = formatWeatherBlock(p.today);
+        const tomorrow = formatWeatherBlock(p.tomorrow);
+        const nextDays = cleanText(p.next_3_days || p.next3Days);
+        const alerts = cleanText(p.alerts || p.extreme_weather || p.extremeWeather);
+        const actions = cleanText(p.recommended_actions || p.actions || p.recommendedActions);
+
+        if (today) {
             cards.push({
-                label: 'Current Weather',
-                value: `🌡️ Temp: ${formatEntry('temp', t.temp ?? t.temperature)} | 💦 Humidity: ${formatEntry('humidity', t.humidity)}${t.rainfall != null ? ` | Rain: ${formatEntry('rain', t.rainfall)}` : ''}`,
-            });
-        } else {
-            cards.push({
-                label: 'Current Weather',
-                value: null,
-                fallback: 'Live weather feed unavailable right now',
+                label: 'Today',
+                value: today,
             });
         }
-        if (p.tomorrow && typeof p.tomorrow === 'object') {
-            const t = p.tomorrow;
+        if (tomorrow) {
             cards.push({
                 label: 'Tomorrow',
-                value: `🌡️ Temp: ${formatEntry('temp', t.temp ?? t.temperature)} | 💦 Humidity: ${formatEntry('humidity', t.humidity)}${t.rainfall != null ? ` | Rain: ${formatEntry('rain', t.rainfall)}` : ''}`,
+                value: tomorrow,
             });
         }
-        if (p.next_3_days || p.next3Days) {
-            cards.push({ label: 'Next 3 Days', value: `🌧️ ${formatEntry('forecast', p.next_3_days || p.next3Days)}` });
+        if (nextDays) {
+            cards.push({ label: 'Next 3 Days', value: nextDays });
         }
-        if (p.alerts || p.extreme_weather) {
+        if (alerts) {
             cards.push({
                 label: 'Extreme Weather Alerts',
-                value: `⚠️ ${formatEntry('alert', p.alerts || p.extreme_weather)}`,
+                value: alerts,
                 tone: 'warning',
             });
         }
-        if (p.recommended_actions || p.actions) {
-            cards.push({ label: 'Recommended Actions', value: `✅ ${formatEntry('actions', p.recommended_actions || p.actions)}` });
+        if (actions) {
+            cards.push({ label: 'Recommended Actions', value: actions });
         }
         return { cards, error, score: confidenceOf(item) };
     }
@@ -225,25 +265,16 @@ function buildCards(item: Recommendation, type: string) {
     if (type === 'disease') {
         if (p.message || p.status) {
             cards.push({ label: 'Detected Issue', value: `⚠️ ${formatEntry('status', p.message || p.status)}` });
-        } else {
+        }
+        if (p.symptoms) {
+            cards.push({ label: 'Symptoms', value: `🍂 ${formatEntry('symptoms', p.symptoms)}` });
+        }
+        if (p.treatment || p.recommended_treatment) {
             cards.push({
-                label: 'Detected Issue',
-                value: null,
-                fallback: 'No disease signal yet — satellite detection is coming soon',
+                label: 'Recommended Treatment',
+                value: `🌿 ${formatEntry('treatment', p.treatment || p.recommended_treatment)}`,
             });
         }
-        cards.push({
-            label: 'Symptoms',
-            value: p.symptoms ? `🍂 ${formatEntry('symptoms', p.symptoms)}` : null,
-            fallback: 'Symptom guide not available for this crop yet',
-        });
-        cards.push({
-            label: 'Recommended Treatment',
-            value: (p.treatment || p.recommended_treatment)
-                ? `🌿 ${formatEntry('treatment', p.treatment || p.recommended_treatment)}`
-                : null,
-            fallback: 'Treatment tips unlock once an issue is confirmed',
-        });
         if (p.preventive_measures || p.prevention) {
             cards.push({ label: 'Preventive Measures', value: `🔄 ${formatEntry('prevention', p.preventive_measures || p.prevention)}` });
         }
@@ -261,16 +292,89 @@ function buildCards(item: Recommendation, type: string) {
                 cards.push({ label: humanize(key), value: formatEntry(key, value) });
             }
         });
-        if (cards.length === 0) {
-            cards.push({
-                label: 'Status',
-                value: null,
-                fallback: 'Details for this category were not returned — try running the analysis again',
-            });
-        }
     }
 
     return { cards, error, score: confidenceOf(item) };
+}
+
+function unavailableCopy(type: string, rawMessage?: string | null) {
+    if (type === 'irrigation') {
+        const unsupportedCrop = rawMessage?.match(/crop type (.+?) not supported/i)?.[1]?.trim();
+        return {
+            icon: 'water-outline' as const,
+            title: 'Irrigation advice is not available for this crop yet',
+            body: unsupportedCrop
+                ? `The model does not currently support irrigation scheduling for ${unsupportedCrop}.`
+                : 'The model could not calculate a watering plan from this scan.',
+            action: 'Try rice or Irish Potatoes, or run the analysis again without selecting a crop type.',
+        };
+    }
+    if (type === 'disease') {
+        return {
+            icon: 'bug-outline' as const,
+            title: 'Disease detection is still limited',
+            body: 'This feature needs satellite imagery or confirmed leaf symptoms before it can give a reliable diagnosis.',
+            action: 'For now, use this as a placeholder and rely on field inspection for disease decisions.',
+        };
+    }
+    if (type === 'weather') {
+        return {
+            icon: 'cloudy-outline' as const,
+            title: 'Weather details were not included',
+            body: 'The recommendation exists, but the model did not return enough forecast data for this section.',
+            action: 'Run another analysis after adding rainfall, humidity, and location values.',
+        };
+    }
+    if (type === 'fertilizer') {
+        return {
+            icon: 'flask-outline' as const,
+            title: 'Fertilizer details are incomplete',
+            body: 'The model needs clearer NPK and soil information before it can give a confident fertilizer plan.',
+            action: 'Add nitrogen, phosphorus, potassium and pH values, then run a new analysis.',
+        };
+    }
+    return {
+        icon: 'leaf-outline' as const,
+        title: 'Not enough recommendation data',
+        body: 'This scan returned a result, but not enough detail to create useful cards.',
+        action: 'Run a fresh analysis with complete metrics and a clear soil image.',
+    };
+}
+
+function UnavailablePanel({
+    type,
+    message,
+    onRetry,
+}: {
+    type: string;
+    message?: string | null;
+    onRetry: () => void;
+}) {
+    const copy = unavailableCopy(type, message);
+    return (
+        <View style={styles.unavailablePanel}>
+            <View style={styles.unavailableHeader}>
+                <View style={styles.unavailableBadge}>
+                    <Ionicons name={copy.icon} size={22} color="#34643F" />
+                </View>
+                <View style={{ flex: 1 }}>
+                    <Text style={styles.unavailableTitle}>{copy.title}</Text>
+                    <Text style={styles.unavailableBody}>{copy.body}</Text>
+                </View>
+            </View>
+            {message && (
+                <View style={styles.modelMessageBox}>
+                    <Text style={styles.modelMessageLabel}>Model response</Text>
+                    <Text style={styles.modelMessageText}>{formatEntry('message', message)}</Text>
+                </View>
+            )}
+            <Text style={styles.unavailableAction}>{copy.action}</Text>
+            <TouchableOpacity onPress={onRetry} style={styles.secondaryButton} activeOpacity={0.85}>
+                <Ionicons name="add-circle-outline" size={18} color="#fff" />
+                <Text style={styles.secondaryButtonText}>Run New Analysis</Text>
+            </TouchableOpacity>
+        </View>
+    );
 }
 
 export default function Recommends() {
@@ -467,12 +571,10 @@ export default function Recommends() {
                         </View>
 
                         {activeItems.length === 0 ? (
-                            <View style={styles.emptyBox}>
-                                <Ionicons name={activeCategory.icon} size={44} color="#C9CFC5" />
-                                <Text style={styles.emptyText}>
-                                    No {activeCategory.title.toLowerCase()} yet.{'\n'}Tap + to run a new analysis.
-                                </Text>
-                            </View>
+                            <UnavailablePanel
+                                type={activeType}
+                                onRetry={() => setView('form')}
+                            />
                         ) : (
                             <>
                                 {/* Crop choice pills — Figma style, only when multiple crops */}
@@ -495,13 +597,15 @@ export default function Recommends() {
                                     </View>
                                 )}
 
-                                {built?.error && (
-                                    <View style={{ marginBottom: 12 }}>
-                                        <ErrorNote message={built.error} />
-                                    </View>
+                                {(built?.error || (built && built.cards.length === 0)) && (
+                                    <UnavailablePanel
+                                        type={activeType}
+                                        message={built?.error}
+                                        onRetry={() => setView('form')}
+                                    />
                                 )}
 
-                                {built?.cards[0] && (
+                                {!built?.error && built?.cards[0] && (
                                     <ResultFieldCard
                                         label={built.cards[0].label}
                                         value={built.cards[0].value}
@@ -514,7 +618,7 @@ export default function Recommends() {
                                     <GrowthScoreBar score={built?.score ?? null} />
                                 )}
 
-                                {built?.cards.slice(1).map((card, i) => (
+                                {!built?.error && built?.cards.slice(1).map((card, i) => (
                                     <ResultFieldCard
                                         key={`${card.label}-${i}`}
                                         label={card.label}
@@ -611,6 +715,84 @@ const styles = StyleSheet.create({
         borderColor: '#E8E8E0',
     },
     emptyText: { color: '#4B5563', fontSize: 14, fontWeight: '600', textAlign: 'center', marginTop: 12, lineHeight: 20 },
+    unavailablePanel: {
+        backgroundColor: '#FFFDF4',
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: '#EADFB8',
+        padding: 16,
+        marginBottom: 14,
+    },
+    unavailableHeader: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 12,
+    },
+    unavailableBadge: {
+        width: 42,
+        height: 42,
+        borderRadius: 21,
+        backgroundColor: '#E8F5E9',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    unavailableTitle: {
+        color: '#1F2937',
+        fontSize: 15,
+        fontWeight: '800',
+        lineHeight: 21,
+    },
+    unavailableBody: {
+        color: '#4B5563',
+        fontSize: 13,
+        fontWeight: '600',
+        lineHeight: 19,
+        marginTop: 4,
+    },
+    unavailableAction: {
+        color: '#34643F',
+        fontSize: 13,
+        fontWeight: '700',
+        lineHeight: 19,
+        marginTop: 12,
+    },
+    modelMessageBox: {
+        backgroundColor: '#fff',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#F3E6B7',
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        marginTop: 12,
+    },
+    modelMessageLabel: {
+        color: '#92400E',
+        fontSize: 11,
+        fontWeight: '800',
+        textTransform: 'uppercase',
+        marginBottom: 4,
+    },
+    modelMessageText: {
+        color: '#6B5E38',
+        fontSize: 13,
+        fontWeight: '700',
+        lineHeight: 18,
+    },
+    secondaryButton: {
+        marginTop: 14,
+        backgroundColor: '#34643F',
+        borderRadius: 12,
+        paddingVertical: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexDirection: 'row',
+        gap: 8,
+    },
+    secondaryButtonText: {
+        color: '#fff',
+        fontSize: 14,
+        fontWeight: '800',
+    },
     footnote: { color: '#6B7280', fontSize: 12, fontWeight: '600', textAlign: 'center', marginTop: 8 },
     fab: {
         position: 'absolute',

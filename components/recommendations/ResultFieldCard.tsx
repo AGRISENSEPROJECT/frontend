@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 type Props = {
     label: string;
@@ -22,11 +23,40 @@ export default function ResultFieldCard({
     const hasValue = value != null && String(value).trim() !== '';
     const display = hasValue ? String(value) : fallback;
     const muted = !hasValue || tone === 'muted';
+    const rows = hasValue && display.includes('\n')
+        ? display.split('\n').map(row => row.trim()).filter(Boolean)
+        : [];
 
     return (
-        <View style={styles.card}>
+        <View style={[styles.card, muted && styles.cardMuted]}>
             <Text style={[styles.label, tone === 'warning' && styles.labelWarning]}>{label}</Text>
-            <Text style={[styles.value, muted && styles.valueMuted]}>{display}</Text>
+            {muted ? (
+                <View style={styles.unavailableRow}>
+                    <View style={[styles.unavailableIcon, tone === 'warning' && styles.unavailableIconWarning]}>
+                        <Ionicons
+                            name={tone === 'warning' ? 'alert-circle-outline' : 'information-circle-outline'}
+                            size={18}
+                            color={tone === 'warning' ? '#B45309' : '#34643F'}
+                        />
+                    </View>
+                    <Text style={[styles.value, styles.valueMuted]}>{display}</Text>
+                </View>
+            ) : rows.length > 0 ? (
+                <View style={styles.metricRows}>
+                    {rows.map((row) => {
+                        const [name, ...rest] = row.split(':');
+                        const detail = rest.join(':').trim();
+                        return (
+                            <View key={row} style={styles.metricRow}>
+                                <Text style={styles.metricLabel}>{name}</Text>
+                                <Text style={styles.metricValue}>{detail || row}</Text>
+                            </View>
+                        );
+                    })}
+                </View>
+            ) : (
+                <Text style={styles.value}>{display}</Text>
+            )}
             {children}
         </View>
     );
@@ -75,6 +105,10 @@ const styles = StyleSheet.create({
         shadowRadius: 3,
         elevation: 2,
     },
+    cardMuted: {
+        backgroundColor: '#FFFDF4',
+        borderColor: '#EADFB8',
+    },
     label: {
         color: '#34643F',
         fontWeight: '700',
@@ -90,10 +124,48 @@ const styles = StyleSheet.create({
         fontSize: 15,
         lineHeight: 22,
     },
+    metricRows: {
+        gap: 7,
+    },
+    metricRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+    },
+    metricLabel: {
+        color: '#4B5563',
+        fontSize: 14,
+        fontWeight: '700',
+    },
+    metricValue: {
+        color: '#111827',
+        fontSize: 14,
+        fontWeight: '800',
+        flexShrink: 1,
+        textAlign: 'right',
+    },
     valueMuted: {
-        color: '#6B7280',
+        color: '#6B5E38',
         fontWeight: '600',
-        fontStyle: 'italic',
+        flex: 1,
+    },
+    unavailableRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 10,
+    },
+    unavailableIcon: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        backgroundColor: '#E8F5E9',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginTop: 1,
+    },
+    unavailableIconWarning: {
+        backgroundColor: '#FEF3C7',
     },
     hint: {
         marginTop: 8,
