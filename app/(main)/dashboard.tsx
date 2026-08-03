@@ -5,15 +5,49 @@ import { useSidebar } from '../../context/SidebarContext';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authApi, predictionsApi, userHasFarm } from '@/services/api';
-import PayloadRows, { formatValue, humanize } from '@/components/recommendations/PayloadRows';
+import PayloadRows, { formatValue, formatEntry, humanize, HIDDEN_KEYS } from '@/components/recommendations/PayloadRows';
 
-const TABS = ['Overview', 'Soil status', 'Weather', 'Recommend', 'Irrigation', 'Pest/Disease'];
+const TABS = ['Overview', 'Soil status', 'Weather', 'Recommend', 'Irrigation', 'Pests'];
 
 const carouselItems = [
     { image: require('../../assets/latest-update.png'), title: 'Get to know your soil' },
     { image: require('../../assets/latest-update.png'), title: 'Smart crop suggestions' },
     { image: require('../../assets/latest-update.png'), title: 'Weather-aware farming' },
 ];
+
+function AccordionCard({
+    title,
+    expanded,
+    onPress,
+    children,
+}: {
+    title: string;
+    expanded: boolean;
+    onPress: () => void;
+    children: React.ReactNode;
+}) {
+    return (
+        <View style={dashStyles.accordion}>
+            <TouchableOpacity style={dashStyles.accordionHeader} onPress={onPress} activeOpacity={0.85}>
+                <View style={dashStyles.accordionTitleRow}>
+                    <Ionicons name="leaf" size={18} color="#34643F" style={{ marginRight: 8 }} />
+                    <Text style={dashStyles.accordionTitle}>{title}</Text>
+                </View>
+                <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={22} color="#374151" />
+            </TouchableOpacity>
+            {expanded && <View style={dashStyles.accordionBody}>{children}</View>}
+        </View>
+    );
+}
+
+function HighlightLine({ label, value }: { label: string; value: string }) {
+    return (
+        <Text style={dashStyles.bodyText}>
+            <Text style={dashStyles.bodyLabel}>{label} </Text>
+            <Text style={dashStyles.highlight}>{value}</Text>
+        </Text>
+    );
+}
 
 export default function Dashboard() {
     const [currentIndex, setCurrentIndex] = useState(0);
@@ -139,37 +173,19 @@ export default function Dashboard() {
     const soilScan = latestRun?.soilScan || null;
 
     const EmptyRecommendations = () => (
-        <View className="bg-white rounded-xl p-6 border border-gray-200 items-center" style={styles.cardShadow}>
-            <View className="w-14 h-14 rounded-full bg-[#E8F5E9] items-center justify-center">
+        <View style={dashStyles.emptyCard}>
+            <View style={dashStyles.emptyIcon}>
                 <Ionicons name="flask-outline" size={26} color="#0B4D26" />
             </View>
-            <Text className="text-gray-900 font-bold text-base mt-3">No recommendations yet</Text>
-            <Text className="text-gray-500 text-sm text-center mt-1 leading-5">
+            <Text style={dashStyles.emptyTitle}>No recommendations yet</Text>
+            <Text style={dashStyles.emptySubtitle}>
                 Run a soil analysis to get crop, fertilizer and irrigation advice for your farm.
             </Text>
             <TouchableOpacity
                 onPress={() => router.push('/recommends')}
-                className="bg-[#0B4D26] rounded-lg px-6 py-3 mt-4"
+                style={dashStyles.primaryBtn}
             >
-                <Text className="text-white font-bold">Get Recommendations</Text>
-            </TouchableOpacity>
-        </View>
-    );
-
-    const RecommendationAccordions = ({ recs, keyPrefix }: { recs: any[]; keyPrefix: string }) => (
-        <View className="gap-3">
-            {recs.map((rec, index) => (
-                <AccordionCard
-                    key={`${keyPrefix}-${index}`}
-                    title={rec.title}
-                    expanded={expandedCard === `${keyPrefix}-${index}`}
-                    onPress={() => toggleAccordion(`${keyPrefix}-${index}`)}
-                >
-                    <PayloadRows payload={rec.payload} />
-                </AccordionCard>
-            ))}
-            <TouchableOpacity onPress={() => router.push('/recommends')} className="py-2">
-                <Text className="text-green-700 font-semibold text-sm">See all recommendations →</Text>
+                <Text style={dashStyles.primaryBtnText}>Get Recommendations</Text>
             </TouchableOpacity>
         </View>
     );
@@ -177,7 +193,7 @@ export default function Dashboard() {
     const renderContent = () => {
         if (loadingRun) {
             return (
-                <View className="bg-white rounded-xl p-8 border border-gray-200 items-center">
+                <View style={[dashStyles.emptyCard, { paddingVertical: 32 }]}>
                     <ActivityIndicator color="#0B4D26" />
                 </View>
             );
@@ -187,113 +203,182 @@ export default function Dashboard() {
             return <EmptyRecommendations />;
         }
 
+        const cropRecs = recsOfType('crop');
+        const fertRecs = recsOfType('fertilizer');
+        const irrigationRecs = recsOfType('irrigation');
+        const weatherRecs = recsOfType('weather');
+        const diseaseRecs = recsOfType('disease');
+
         switch (activeTab) {
             case 'Overview':
                 return (
-                    <View className="bg-white rounded-xl p-4 border border-gray-200" style={styles.cardShadow}>
-                        <Text className="font-semibold text-gray-900 mb-3">Latest Analysis</Text>
-                        <View className="gap-2">
-                            {summary.bestCrop && <Row icon="leaf" iconColor="#22C55E" label="Best Crop" value={String(summary.bestCrop)} />}
+                    <View style={{ gap: 12 }}>
+                        <AccordionCard
+                            title="Latest Analysis"
+                            expanded={expandedCard === 'overview' || expandedCard == null}
+                            onPress={() => toggleAccordion('overview')}
+                        >
+                            {summary.bestCrop && (
+                                <HighlightLine label="Best crop :" value={String(summary.bestCrop)} />
+                            )}
                             {summary.confidence != null && (
-                                <Row icon="analytics" iconColor="#22C55E" label="Confidence"
-                                    value={`${Math.round(Number(summary.confidence) * (Number(summary.confidence) <= 1 ? 100 : 1))}%`} />
+                                <Text style={dashStyles.bodyText}>
+                                    Confidence: {Math.round(Number(summary.confidence) * (Number(summary.confidence) <= 1 ? 100 : 1))}%
+                                </Text>
                             )}
-                            {summary.soilTexture && <Row icon="layers" iconColor="#A16207" label="Soil Texture" value={String(summary.soilTexture)} />}
-                            {summary.soilMoisture != null && <Row icon="water" iconColor="#3B82F6" label="Soil Moisture" value={formatValue(summary.soilMoisture)} />}
-                            {summary.fertilizer && <Row icon="nutrition" iconColor="#EAB308" label="Fertilizer" value={String(summary.fertilizer)} />}
-                            {latestRun.executedAt && (
-                                <Row icon="time" iconColor="#6B7280" label="Analyzed"
-                                    value={new Date(latestRun.executedAt).toLocaleDateString()} />
+                            {summary.soilTexture && (
+                                <Text style={dashStyles.bodyText}>Soil texture: {String(summary.soilTexture)}</Text>
                             )}
-                        </View>
-                        <TouchableOpacity onPress={() => router.push('/recommends')} className="mt-3">
-                            <Text className="text-green-700 font-semibold text-sm">See all recommendations →</Text>
-                        </TouchableOpacity>
+                            {summary.fertilizer && (
+                                <HighlightLine label="Fertilizer :" value={String(summary.fertilizer)} />
+                            )}
+                            <TouchableOpacity onPress={() => router.push('/recommends')} style={{ marginTop: 8 }}>
+                                <Text style={dashStyles.link}>See all recommendations →</Text>
+                            </TouchableOpacity>
+                        </AccordionCard>
                     </View>
                 );
             case 'Soil status':
                 return (
-                    <View className="bg-white rounded-xl p-4 border border-gray-200" style={styles.cardShadow}>
-                        <Text className="font-semibold text-gray-900 mb-3">Latest Soil Composition</Text>
+                    <AccordionCard
+                        title="Latest Soil Composition"
+                        expanded={expandedCard === 'soil' || expandedCard == null}
+                        onPress={() => toggleAccordion('soil')}
+                    >
                         {soilScan ? (
-                            <View className="gap-1">
-                                {Object.entries(soilScan)
-                                    .filter(([key, value]) =>
-                                        value != null && value !== '' &&
-                                        !['id', 'farmId', 'imageUrl', 'createdAt', 'updatedAt'].includes(key) &&
-                                        typeof value !== 'object')
-                                    .map(([key, value]) => (
-                                        <View key={key} className="flex-row justify-between py-1">
-                                            <Text className="text-gray-700">{humanize(key)}</Text>
-                                            <Text className="text-gray-900 font-medium">{formatValue(value)}</Text>
-                                        </View>
-                                    ))}
-                            </View>
+                            Object.entries(soilScan)
+                                .filter(([key, value]) =>
+                                    value != null && value !== '' &&
+                                    !HIDDEN_KEYS.includes(key) &&
+                                    !['source'].includes(key) &&
+                                    typeof value !== 'object')
+                                .map(([key, value]) => (
+                                    <View key={key} style={dashStyles.soilRow}>
+                                        <Text style={dashStyles.soilLabel}>{humanize(key)}</Text>
+                                        <Text style={dashStyles.soilValue}>{formatEntry(key, value)}</Text>
+                                    </View>
+                                ))
                         ) : (
-                            <Text className="text-gray-500 text-sm">No soil scan data in the latest analysis.</Text>
+                            <Text style={dashStyles.bodyText}>No soil scan data in the latest analysis.</Text>
                         )}
-                    </View>
+                    </AccordionCard>
                 );
-            case 'Weather': {
-                const recs = recsOfType('weather');
-                return recs.length > 0
-                    ? <RecommendationAccordions recs={recs} keyPrefix="weather" />
-                    : <NoTabData label="weather" />;
-            }
+            case 'Weather':
+                return weatherRecs.length > 0 ? (
+                    <View style={{ gap: 12 }}>
+                        {weatherRecs.map((rec, index) => (
+                            <AccordionCard
+                                key={`weather-${index}`}
+                                title={rec.title || 'Weather Forecast'}
+                                expanded={expandedCard === `weather-${index}` || (expandedCard == null && index === 0)}
+                                onPress={() => toggleAccordion(`weather-${index}`)}
+                            >
+                                <PayloadRows payload={rec.payload} />
+                            </AccordionCard>
+                        ))}
+                        <TouchableOpacity onPress={() => router.push('/recommends')}>
+                            <Text style={dashStyles.link}>See all recommendations →</Text>
+                        </TouchableOpacity>
+                    </View>
+                ) : <NoTabData label="weather" />;
             case 'Recommend': {
-                const recs = [...recsOfType('crop'), ...recsOfType('fertilizer'), ...recsOfType('general')];
-                return recs.length > 0
-                    ? <RecommendationAccordions recs={recs} keyPrefix="recommend" />
-                    : <NoTabData label="crop and fertilizer" />;
+                const topCrops = cropRecs
+                    .slice(0, 3)
+                    .map(r => r.payload?.best_crop || r.payload?.bestCrop || r.payload?.crop || r.title)
+                    .filter(Boolean);
+                const fert = fertRecs[0];
+                const fertName = fert?.payload?.recommended_fertilizer || fert?.payload?.fertilizer || fert?.title;
+                const fertDesc = fert?.payload?.description || fert?.payload?.soil_npk_status;
+                return (cropRecs.length > 0 || fertRecs.length > 0) ? (
+                    <View style={{ gap: 12 }}>
+                        {cropRecs.length > 0 && (
+                            <AccordionCard
+                                title="Crop Suggestions"
+                                expanded={expandedCard === 'crops' || expandedCard == null}
+                                onPress={() => toggleAccordion('crops')}
+                            >
+                                {summary.soilTexture && (
+                                    <Text style={dashStyles.bodyText}>
+                                        {String(summary.soilTexture)}
+                                        {summary.soilMoisture != null ? ` · Moisture ${formatValue(summary.soilMoisture)}` : ''}
+                                    </Text>
+                                )}
+                                <HighlightLine label="Possible crops :" value={topCrops.join(', ')} />
+                            </AccordionCard>
+                        )}
+                        {fert && (
+                            <AccordionCard
+                                title="Fertilizer Suggestion"
+                                expanded={expandedCard === 'fert' || (expandedCard == null && cropRecs.length === 0)}
+                                onPress={() => toggleAccordion('fert')}
+                            >
+                                {fertDesc && <Text style={dashStyles.bodyText}>{formatValue(fertDesc)}</Text>}
+                                {fertName && <HighlightLine label="Possible fertilizers :" value={String(fertName)} />}
+                            </AccordionCard>
+                        )}
+                        <TouchableOpacity onPress={() => router.push('/recommends')}>
+                            <Text style={dashStyles.link}>See all recommendations →</Text>
+                        </TouchableOpacity>
+                    </View>
+                ) : <NoTabData label="crop and fertilizer" />;
             }
-            case 'Irrigation': {
-                const recs = recsOfType('irrigation');
-                return recs.length > 0
-                    ? <RecommendationAccordions recs={recs} keyPrefix="irrigation" />
-                    : <NoTabData label="irrigation" />;
-            }
-            case 'Pest/Disease': {
-                const recs = recsOfType('disease');
-                return recs.length > 0 ? (
-                    <View>
-                        <RecommendationAccordions recs={recs} keyPrefix="disease" />
-                        <Text className="text-gray-400 text-xs mt-2 text-center">Informational only — satellite data coming soon</Text>
+            case 'Irrigation':
+                return irrigationRecs.length > 0 ? (
+                    <View style={{ gap: 12 }}>
+                        {irrigationRecs.map((rec, index) => {
+                            const p = rec.payload || {};
+                            const hasError = typeof p.error === 'string';
+                            return (
+                                <AccordionCard
+                                    key={`irr-${index}`}
+                                    title={index === 0 ? 'Soil Moisture Level' : (rec.title || 'Irrigation Scheduling')}
+                                    expanded={expandedCard === `irr-${index}` || (expandedCard == null && index === 0)}
+                                    onPress={() => toggleAccordion(`irr-${index}`)}
+                                >
+                                    {hasError ? (
+                                        <Text style={[dashStyles.bodyText, { color: '#B45309' }]}>⚠️ {formatValue(p.error)}</Text>
+                                    ) : (
+                                        <PayloadRows payload={p} />
+                                    )}
+                                </AccordionCard>
+                            );
+                        })}
+                        <TouchableOpacity onPress={() => router.push('/recommends')}>
+                            <Text style={dashStyles.link}>See all recommendations →</Text>
+                        </TouchableOpacity>
+                    </View>
+                ) : <NoTabData label="irrigation" />;
+            case 'Pests':
+                return diseaseRecs.length > 0 ? (
+                    <View style={{ gap: 12 }}>
+                        {diseaseRecs.map((rec, index) => (
+                            <AccordionCard
+                                key={`disease-${index}`}
+                                title="Pest & Disease Watch"
+                                expanded={expandedCard === `disease-${index}` || (expandedCard == null && index === 0)}
+                                onPress={() => toggleAccordion(`disease-${index}`)}
+                            >
+                                <PayloadRows payload={rec.payload} />
+                                <Text style={[dashStyles.bodyText, { marginTop: 8, color: '#6B7280', fontSize: 12 }]}>
+                                    Informational only — satellite data coming soon
+                                </Text>
+                            </AccordionCard>
+                        ))}
                     </View>
                 ) : <NoTabData label="pest & disease" />;
-            }
             default:
                 return null;
         }
     };
 
     const NoTabData = ({ label }: { label: string }) => (
-        <View className="bg-white rounded-xl p-5 border border-gray-200 items-center" style={styles.cardShadow}>
-            <Text className="text-gray-500 text-sm text-center">
+        <View style={dashStyles.emptyCard}>
+            <Text style={[dashStyles.bodyText, { textAlign: 'center' }]}>
                 No {label} recommendations in your latest analysis.
             </Text>
-            <TouchableOpacity onPress={() => router.push('/recommends')} className="mt-2">
-                <Text className="text-green-700 font-semibold text-sm">Run a new analysis →</Text>
+            <TouchableOpacity onPress={() => router.push('/recommends')} style={{ marginTop: 8 }}>
+                <Text style={dashStyles.link}>Run a new analysis →</Text>
             </TouchableOpacity>
-        </View>
-    );
-
-    const AccordionCard = ({ title, expanded, onPress, children }: { title: string; expanded: boolean; onPress: () => void; children: React.ReactNode }) => (
-        <View className="bg-white rounded-xl border border-gray-200 overflow-hidden" style={styles.cardShadow}>
-            <TouchableOpacity className="flex-row justify-between items-center p-4" onPress={onPress} activeOpacity={0.8}>
-                <Text className="font-semibold text-gray-900 capitalize flex-1">{title}</Text>
-                <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={22} color="#666" />
-            </TouchableOpacity>
-            {expanded && <View className="px-4 pb-4 pt-0">{children}</View>}
-        </View>
-    );
-
-    const Row = ({ icon, iconColor, label, value }: { icon: string; iconColor: string; label: string; value: string }) => (
-        <View className="flex-row items-center justify-between py-1">
-            <View className="flex-row items-center flex-1">
-                <Ionicons name={icon as any} size={18} color={iconColor} style={{ marginRight: 8 }} />
-                <Text className="text-gray-700">{label}:</Text>
-            </View>
-            <Text className="text-gray-900 font-medium capitalize">{value}</Text>
         </View>
     );
 
@@ -324,11 +409,15 @@ export default function Dashboard() {
                                 disabled={farms.length === 0}
                             >
                                 <Ionicons name="location-outline" size={20} color="white" style={{ marginRight: 5 }} />
-                                <Text className="text-white font-medium">{farmData?.name || 'My Farm'}</Text>
+                                <Text className="text-white font-bold text-base">
+                                    {farmData
+                                        ? `${farmData.district || farmData.name}${farmData.province ? `, ${farmData.province}` : farmData.country ? `, ${farmData.country}` : ''}`
+                                        : 'My Farm'}
+                                </Text>
                                 {farms.length > 0 && <Ionicons name="chevron-down" size={16} color="white" style={{ marginLeft: 5 }} />}
                             </TouchableOpacity>
-                            <Text className="text-white text-xs" style={{ opacity: 0.8 }}>
-                                {farmData ? `${farmData.district}${farmData.province ? `, ${farmData.province}` : ''}` : `Welcome, ${userData?.username || ''}`}
+                            <Text className="text-white text-xs font-semibold" style={{ opacity: 0.9 }}>
+                                {farmData?.name || `Welcome, ${userData?.username || ''}`}
                             </Text>
                         </View>
                         <View className="flex-row items-center">
@@ -357,9 +446,9 @@ export default function Dashboard() {
                 {/* Latest Update */}
                 <View className="p-4">
                     <View className="flex-row justify-between items-center">
-                        <Text className="text-lg font-bold">#Latest Update</Text>
+                        <Text className="text-xl font-bold text-gray-900">#Latest Update</Text>
                         <TouchableOpacity onPress={() => router.push('/recommends')}>
-                            <Text className="text-green-700 font-semibold">See all</Text>
+                            <Text className="text-green-800 font-bold">See all</Text>
                         </TouchableOpacity>
                     </View>
                     <ScrollView
@@ -393,29 +482,35 @@ export default function Dashboard() {
                 {/* Recommended For You */}
                 <View className="px-4">
                     <View className="flex-row justify-between items-center">
-                        <Text className="text-lg font-bold">Recommended For You</Text>
+                        <Text className="text-xl font-bold text-gray-900">Recommended For You</Text>
                         <TouchableOpacity onPress={() => router.push('/recommends')}>
-                            <Text className="text-green-700">See all</Text>
+                            <Text className="text-green-800 font-bold">See all</Text>
                         </TouchableOpacity>
                     </View>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-2">
-                        {TABS.map((tab) => (
-                            <TouchableOpacity
-                                key={tab}
-                                className={`p-2 px-3 rounded-lg mr-2 ${activeTab === tab ? 'bg-green-200' : 'bg-gray-200'}`}
-                                onPress={() => setActiveTab(tab)}
-                            >
-                                <Text className={activeTab === tab ? 'font-semibold text-green-900' : 'text-gray-700'}>{tab}</Text>
-                            </TouchableOpacity>
-                        ))}
+                        {TABS.map((tab) => {
+                            const active = activeTab === tab;
+                            return (
+                                <TouchableOpacity
+                                    key={tab}
+                                    style={[dashStyles.chip, active && dashStyles.chipActive]}
+                                    onPress={() => {
+                                        setActiveTab(tab);
+                                        setExpandedCard(null);
+                                    }}
+                                >
+                                    <Text style={[dashStyles.chipText, active && dashStyles.chipTextActive]}>{tab}</Text>
+                                </TouchableOpacity>
+                            );
+                        })}
                     </ScrollView>
                 </View>
 
                 {/* Farm section */}
                 <View className="px-4 pt-4 pb-2 flex-row justify-between items-center">
-                    <Text className="text-lg font-bold text-gray-900">{farmData?.name || 'My Farm'}</Text>
+                    <Text className="text-xl font-bold text-gray-900">{farmData?.name || 'My Farm'}</Text>
                     <TouchableOpacity onPress={() => router.push('/recommends')}>
-                        <Text className="text-green-700 font-semibold">See All</Text>
+                        <Text className="text-green-800 font-bold">See All</Text>
                     </TouchableOpacity>
                 </View>
 
@@ -481,6 +576,75 @@ export default function Dashboard() {
         </View>
     );
 }
+
+const dashStyles = StyleSheet.create({
+    accordion: {
+        backgroundColor: '#fff',
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.07,
+        shadowRadius: 3,
+        elevation: 2,
+    },
+    accordionHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingVertical: 14,
+    },
+    accordionTitleRow: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 },
+    accordionTitle: { color: '#111827', fontWeight: '700', fontSize: 15, flexShrink: 1 },
+    accordionBody: {
+        paddingHorizontal: 16,
+        paddingBottom: 14,
+        paddingTop: 2,
+        backgroundColor: '#FAFAF7',
+        borderTopWidth: 1,
+        borderTopColor: '#F3F4F6',
+    },
+    bodyText: { color: '#374151', fontSize: 14, fontWeight: '600', lineHeight: 21, marginBottom: 4 },
+    bodyLabel: { color: '#111827', fontWeight: '700' },
+    highlight: { color: '#34643F', fontWeight: '700' },
+    link: { color: '#166534', fontWeight: '700', fontSize: 13 },
+    soilRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
+    soilLabel: { color: '#374151', fontWeight: '600', fontSize: 14 },
+    soilValue: { color: '#111827', fontWeight: '700', fontSize: 14, marginLeft: 12, flexShrink: 1, textAlign: 'right' },
+    emptyCard: {
+        backgroundColor: '#fff',
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        padding: 20,
+        alignItems: 'center',
+    },
+    emptyIcon: {
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: '#E8F5E9',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    emptyTitle: { color: '#111827', fontWeight: '700', fontSize: 17, marginTop: 12 },
+    emptySubtitle: { color: '#4B5563', fontWeight: '500', fontSize: 13, textAlign: 'center', marginTop: 6, lineHeight: 19 },
+    primaryBtn: { backgroundColor: '#0B4D26', borderRadius: 10, paddingHorizontal: 22, paddingVertical: 12, marginTop: 14 },
+    primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+    chip: {
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        borderRadius: 10,
+        backgroundColor: '#E5E7EB',
+        marginRight: 8,
+    },
+    chipActive: { backgroundColor: '#34643F' },
+    chipText: { color: '#374151', fontWeight: '700', fontSize: 13 },
+    chipTextActive: { color: '#fff' },
+});
 
 const styles = StyleSheet.create({
     // Inline shadows avoid a NativeWind + Expo Router race that throws

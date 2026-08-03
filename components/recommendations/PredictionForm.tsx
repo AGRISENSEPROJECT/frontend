@@ -39,7 +39,60 @@ const EMPTY_METRICS: Metrics = {
     soilMoisture: '',
 };
 
-const randomIn = (min: number, max: number) => (min + Math.random() * (max - min)).toFixed(1);
+/** Three sensor profiles tuned to the model’s crop suitability bands (temp / humidity / rainfall). */
+const MOCK_PRESETS: {
+    id: string;
+    label: string;
+    hint: string;
+    cropType: string;
+    metrics: Metrics;
+}[] = [
+    {
+        id: 'potatoes',
+        label: '🥔 Highland Potatoes',
+        hint: 'Cool, humid, mid rainfall → Irish Potatoes',
+        cropType: 'Irish Potatoes',
+        metrics: {
+            temperature: '18',
+            humidity: '72',
+            rainfall: '580',
+            nitrogen: '45',
+            phosphorus: '35',
+            potassium: '50',
+            soilMoisture: '42',
+        },
+    },
+    {
+        id: 'rice',
+        label: '🌾 Valley Rice',
+        hint: 'Warm, very wet → rice',
+        cropType: 'rice',
+        metrics: {
+            temperature: '28',
+            humidity: '82',
+            rainfall: '1100',
+            nitrogen: '90',
+            phosphorus: '40',
+            potassium: '40',
+            soilMoisture: '68',
+        },
+    },
+    {
+        id: 'tomatoes',
+        label: '🍅 Garden Tomatoes',
+        hint: 'Mild, drier air → Tomatoes',
+        cropType: 'Tomatoes',
+        metrics: {
+            temperature: '24',
+            humidity: '58',
+            rainfall: '480',
+            nitrogen: '55',
+            phosphorus: '45',
+            potassium: '60',
+            soilMoisture: '34',
+        },
+    },
+];
 
 type Props = {
     onSuccess: (result: any) => void;
@@ -53,6 +106,7 @@ export default function PredictionForm({ onSuccess, firstTime }: Props) {
     const [image, setImage] = useState<{ uri: string; name: string; type: string } | null>(null);
     const [metrics, setMetrics] = useState<Metrics>(EMPTY_METRICS);
     const [cropType, setCropType] = useState<string | null>(null);
+    const [activePreset, setActivePreset] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [loadingFarms, setLoadingFarms] = useState(true);
     const [statusModal, setStatusModal] = useState({
@@ -82,19 +136,16 @@ export default function PredictionForm({ onSuccess, firstTime }: Props) {
 
     const setMetric = (key: keyof Metrics, value: string) => {
         const clean = value.replace(/[^0-9.]/g, '');
+        setActivePreset(null);
         setMetrics(prev => ({ ...prev, [key]: clean }));
     };
 
-    const fillMockData = () => {
-        setMetrics({
-            temperature: randomIn(18, 30),
-            humidity: randomIn(45, 90),
-            rainfall: randomIn(20, 200),
-            nitrogen: randomIn(20, 120),
-            phosphorus: randomIn(10, 60),
-            potassium: randomIn(10, 80),
-            soilMoisture: randomIn(20, 70),
-        });
+    const applyPreset = (presetId: string) => {
+        const preset = MOCK_PRESETS.find(p => p.id === presetId);
+        if (!preset) return;
+        setActivePreset(preset.id);
+        setMetrics({ ...preset.metrics });
+        setCropType(preset.cropType);
     };
 
     const buildImageFile = (asset: ImagePicker.ImagePickerAsset) => {
@@ -138,7 +189,7 @@ export default function PredictionForm({ onSuccess, firstTime }: Props) {
         const required: (keyof Metrics)[] = ['temperature', 'humidity', 'rainfall', 'nitrogen', 'phosphorus', 'potassium'];
         const missing = required.filter(key => metrics[key] === '');
         if (missing.length > 0) {
-            setStatusModal({ visible: true, type: 'info', title: 'Readings Required', message: 'Please fill in all sensor readings, or tap "Fill with mock sensor data".' });
+            setStatusModal({ visible: true, type: 'info', title: 'Readings Required', message: 'Please fill in all sensor readings, or pick one of the 3 mock sensor profiles above.' });
             return;
         }
 
@@ -229,11 +280,30 @@ export default function PredictionForm({ onSuccess, firstTime }: Props) {
 
             {/* Sensor readings */}
             <View style={styles.readingsHeader}>
-                <Text style={styles.sectionTitle}>Sensor Readings</Text>
-                <TouchableOpacity style={styles.mockBtn} onPress={fillMockData}>
-                    <Ionicons name="flash-outline" size={16} color="#0B4D26" />
-                    <Text style={styles.mockBtnText}>Fill with mock sensor data</Text>
-                </TouchableOpacity>
+                <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Sensor Readings</Text>
+            </View>
+            <Text style={styles.presetHint}>
+                Try a scenario to stress-test the model — each profile targets a different top crop.
+            </Text>
+            <View style={styles.presetList}>
+                {MOCK_PRESETS.map(preset => {
+                    const selected = activePreset === preset.id;
+                    return (
+                        <TouchableOpacity
+                            key={preset.id}
+                            style={[styles.presetCard, selected && styles.presetCardActive]}
+                            onPress={() => applyPreset(preset.id)}
+                            activeOpacity={0.85}
+                        >
+                            <Text style={[styles.presetLabel, selected && styles.presetLabelActive]}>
+                                {preset.label}
+                            </Text>
+                            <Text style={[styles.presetSub, selected && styles.presetSubActive]}>
+                                {preset.hint}
+                            </Text>
+                        </TouchableOpacity>
+                    );
+                })}
             </View>
 
             <View style={styles.metricsGrid}>
@@ -410,21 +480,47 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         flexWrap: 'wrap',
         marginTop: 10,
+        marginBottom: 6,
     },
-    mockBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        backgroundColor: '#E8F5E9',
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        borderRadius: 16,
-        marginBottom: 10,
-    },
-    mockBtnText: {
-        color: '#0B4D26',
+    presetHint: {
+        color: '#6B7280',
         fontSize: 12,
-        fontWeight: '600',
+        fontWeight: '500',
+        marginBottom: 10,
+        lineHeight: 17,
+    },
+    presetList: {
+        gap: 8,
+        marginBottom: 14,
+    },
+    presetCard: {
+        backgroundColor: '#fff',
+        borderWidth: 1,
+        borderColor: '#D1D5DB',
+        borderRadius: 12,
+        paddingVertical: 12,
+        paddingHorizontal: 14,
+    },
+    presetCardActive: {
+        backgroundColor: '#E8F5E9',
+        borderColor: '#0B4D26',
+    },
+    presetLabel: {
+        color: '#111827',
+        fontSize: 14,
+        fontWeight: '700',
+    },
+    presetLabelActive: {
+        color: '#0B4D26',
+    },
+    presetSub: {
+        color: '#6B7280',
+        fontSize: 12,
+        marginTop: 3,
+        fontWeight: '500',
+    },
+    presetSubActive: {
+        color: '#34643F',
     },
     metricsGrid: {
         flexDirection: 'row',
