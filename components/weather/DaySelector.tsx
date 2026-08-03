@@ -64,7 +64,7 @@ export default function DaySelector({ selectedDate, onSelectDate }: DaySelectorP
   };
 
   return (
-    <View className="flex-row items-center justify-center px-4 mt-8">
+    <View className="flex-row items-center justify-center px-2">
       <TouchableOpacity onPress={handlePrevDay} className="p-2">
         <Ionicons name="chevron-back" size={24} color="#0B4D26" />
       </TouchableOpacity>
@@ -95,10 +95,10 @@ export default function DaySelector({ selectedDate, onSelectDate }: DaySelectorP
               <TouchableOpacity
                 key={index}
                 onPress={() => onSelectDate(day)}
-                className={`px-6 py-2 mx-1 rounded-full ${
+                className={`px-4 py-2 mx-1 rounded-full ${
                   isSelected ? 'bg-[#0B4D26]' : 'bg-[#D3E7D8]'
                 }`}
-                style={{ width: 120 }}
+                style={{ width: 104 }}
               >
                 <Text className={`${
                   isSelected ? 'text-white' : 'text-[#0B4D26]'

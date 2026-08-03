@@ -1,19 +1,18 @@
-import { View, TouchableOpacity, Text, ScrollView, ActivityIndicator } from 'react-native';
+import { View, TouchableOpacity, Text, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import WeatherHeader from '../../components/weather/WeatherHeader';
 import DaySelector from '../../components/weather/DaySelector';
-import HourlyForecast from '../../components/weather/HourlyForecast';
-import Metars from '../../components/weather/Metars';
 import { useRouter } from 'expo-router';
 import * as Font from 'expo-font';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import { useSidebar } from '../../context/SidebarContext';
 
 const API_KEY = '4a681263221d7d234ffedd87dc199cab';
 
 export default function Weather() {
     const router = useRouter();
+    const { toggleSidebar } = useSidebar();
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [weatherData, setWeatherData] = useState({
         temp: '--°C',
@@ -212,24 +211,287 @@ export default function Weather() {
     }
 
     return (
-        <View className="flex-1 bg-[#E7F4EA]">
-            <ScrollView className="flex-1">
-                <WeatherHeader
-                    selectedDate={selectedDate}
-                    temperature={weatherData.temp}
-                    condition={weatherData.condition}
-                    location={weatherData.location}
-                />
-                <DaySelector selectedDate={selectedDate} onSelectDate={handleDateChange} />
-                <HourlyForecast hourlyData={hourlyForecast} />
-                <Metars />
+        <View style={styles.screen}>
+            <View style={styles.header}>
+                <View style={styles.headerTop}>
+                    <TouchableOpacity onPress={toggleSidebar} style={styles.iconButton}>
+                        <Ionicons name="menu-outline" size={28} color="#fff" />
+                    </TouchableOpacity>
+                    <View style={styles.locationWrap}>
+                        <Ionicons name="location" size={16} color="#fff" />
+                        <Text style={styles.locationText} numberOfLines={1}>{weatherData.location}</Text>
+                    </View>
+                    <TouchableOpacity style={styles.iconButton}>
+                        <Ionicons name="notifications-outline" size={24} color="#fff" />
+                    </TouchableOpacity>
+                </View>
+
+                <View style={styles.heroCard}>
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.heroLabel}>Current Weather</Text>
+                        <Text style={styles.heroTemp}>{weatherData.temp}</Text>
+                        <Text style={styles.heroCondition}>{weatherData.condition}</Text>
+                    </View>
+                    <View style={styles.heroIcon}>
+                        <Ionicons name={mapWeatherConditionToIcon(weatherData.condition) as any} size={42} color="#0B4D26" />
+                    </View>
+                </View>
+            </View>
+
+            <ScrollView
+                style={styles.content}
+                contentContainerStyle={{ paddingBottom: 28 }}
+                showsVerticalScrollIndicator={false}
+            >
+                <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>Choose Day</Text>
+                    <DaySelector selectedDate={selectedDate} onSelectDate={handleDateChange} />
+                </View>
+
+                <View style={styles.metricsGrid}>
+                    <WeatherMetric icon="water-outline" label="Humidity" value={weatherData.humidity} />
+                    <WeatherMetric icon="navigate-outline" label="Wind" value={weatherData.wind} />
+                    <WeatherMetric icon="speedometer-outline" label="Pressure" value={weatherData.pressure} />
+                    <WeatherMetric icon="eye-outline" label="Visibility" value={weatherData.visibility} />
+                </View>
+
+                <View style={styles.section}>
+                    <View style={styles.sectionHeader}>
+                        <Text style={styles.sectionTitle}>Hourly Forecast</Text>
+                        <Text style={styles.sectionHint}>{selectedDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</Text>
+                    </View>
+                    {hourlyForecast.length > 0 ? (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hourlyList}>
+                            {hourlyForecast.map((hour: any, index) => (
+                                <View key={`${hour.time}-${index}`} style={[styles.hourCard, hour.isNow && styles.hourCardActive]}>
+                                    <Text style={[styles.hourTime, hour.isNow && styles.hourTextActive]}>{hour.time}</Text>
+                                    <Ionicons name={hour.icon as any} size={28} color={hour.isNow ? '#fff' : '#0B4D26'} />
+                                    <Text style={[styles.hourTemp, hour.isNow && styles.hourTextActive]}>{hour.temp}</Text>
+                                </View>
+                            ))}
+                        </ScrollView>
+                    ) : (
+                        <View style={styles.emptyCard}>
+                            <Text style={styles.emptyText}>No hourly forecast available for this day.</Text>
+                        </View>
+                    )}
+                </View>
+
                 <TouchableOpacity
-                    className="bg-[#0B4D26] mx-4 p-4 rounded-lg mb-6 mt-8"
+                    style={styles.primaryButton}
                     onPress={handleGetRecommended}
                 >
-                    <Text className="text-white text-center font-medium">Get Recommended</Text>
+                    <Text style={styles.primaryButtonText}>Use Weather In Recommendations</Text>
                 </TouchableOpacity>
             </ScrollView>
         </View>
     );
 }
+
+function WeatherMetric({ icon, label, value }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string }) {
+    return (
+        <View style={styles.metricCard}>
+            <View style={styles.metricIcon}>
+                <Ionicons name={icon} size={20} color="#0B4D26" />
+            </View>
+            <Text style={styles.metricLabel}>{label}</Text>
+            <Text style={styles.metricValue}>{value}</Text>
+        </View>
+    );
+}
+
+const styles = StyleSheet.create({
+    screen: {
+        flex: 1,
+        backgroundColor: '#F8F8F0',
+    },
+    header: {
+        backgroundColor: '#2F6B43',
+        paddingHorizontal: 18,
+        paddingTop: 18,
+        paddingBottom: 20,
+    },
+    headerTop: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    iconButton: {
+        width: 40,
+        height: 40,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    locationWrap: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+        justifyContent: 'center',
+        gap: 4,
+        paddingHorizontal: 8,
+    },
+    locationText: {
+        color: '#fff',
+        fontWeight: '800',
+        fontSize: 14,
+    },
+    heroCard: {
+        marginTop: 18,
+        backgroundColor: '#fff',
+        borderRadius: 22,
+        padding: 18,
+        flexDirection: 'row',
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 6,
+        elevation: 3,
+    },
+    heroLabel: {
+        color: '#6B7280',
+        fontSize: 13,
+        fontWeight: '700',
+    },
+    heroTemp: {
+        color: '#0B4D26',
+        fontSize: 52,
+        fontWeight: '300',
+        marginTop: 2,
+    },
+    heroCondition: {
+        color: '#111827',
+        fontSize: 17,
+        fontWeight: '800',
+        textTransform: 'capitalize',
+    },
+    heroIcon: {
+        width: 76,
+        height: 76,
+        borderRadius: 38,
+        backgroundColor: '#E8F5E9',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    content: {
+        flex: 1,
+    },
+    section: {
+        marginTop: 18,
+    },
+    sectionHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 18,
+        marginBottom: 10,
+    },
+    sectionTitle: {
+        color: '#111827',
+        fontSize: 18,
+        fontWeight: '800',
+        paddingHorizontal: 18,
+        marginBottom: 10,
+    },
+    sectionHint: {
+        color: '#34643F',
+        fontSize: 12,
+        fontWeight: '800',
+    },
+    metricsGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'space-between',
+        paddingHorizontal: 18,
+        marginTop: 18,
+        rowGap: 12,
+    },
+    metricCard: {
+        width: '48%',
+        backgroundColor: '#fff',
+        borderRadius: 18,
+        padding: 14,
+        borderWidth: 1,
+        borderColor: '#E8E8E0',
+    },
+    metricIcon: {
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        backgroundColor: '#E8F5E9',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 10,
+    },
+    metricLabel: {
+        color: '#6B7280',
+        fontSize: 12,
+        fontWeight: '700',
+    },
+    metricValue: {
+        color: '#111827',
+        fontSize: 18,
+        fontWeight: '800',
+        marginTop: 2,
+    },
+    hourlyList: {
+        paddingHorizontal: 18,
+        paddingVertical: 4,
+        gap: 10,
+    },
+    hourCard: {
+        width: 82,
+        height: 118,
+        borderRadius: 24,
+        backgroundColor: '#E8F5E9',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        borderWidth: 1,
+        borderColor: '#D7E8DA',
+    },
+    hourCardActive: {
+        backgroundColor: '#0B4D26',
+        borderColor: '#0B4D26',
+    },
+    hourTime: {
+        color: '#0B4D26',
+        fontSize: 13,
+        fontWeight: '800',
+    },
+    hourTemp: {
+        color: '#0B4D26',
+        fontSize: 17,
+        fontWeight: '800',
+    },
+    hourTextActive: {
+        color: '#fff',
+    },
+    emptyCard: {
+        backgroundColor: '#fff',
+        borderRadius: 16,
+        padding: 18,
+        marginHorizontal: 18,
+        borderWidth: 1,
+        borderColor: '#E8E8E0',
+    },
+    emptyText: {
+        color: '#6B7280',
+        fontSize: 14,
+        fontWeight: '600',
+        textAlign: 'center',
+    },
+    primaryButton: {
+        backgroundColor: '#0B4D26',
+        borderRadius: 16,
+        paddingVertical: 16,
+        marginHorizontal: 18,
+        marginTop: 22,
+        alignItems: 'center',
+    },
+    primaryButtonText: {
+        color: '#fff',
+        fontSize: 15,
+        fontWeight: '800',
+    },
+});
