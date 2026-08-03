@@ -74,8 +74,9 @@ function formatWeatherBlock(day: any): string | null {
 }
 
 /** Keep only the latest prediction run for a type, then unique crop names. */
-function filterActiveItems(items: Recommendation[], type: string): Recommendation[] {
-    const ofType = items.filter(item => item.type === type);
+function filterActiveItems(items: Recommendation[], type: string, predictionId?: string | null): Recommendation[] {
+    const source = predictionId ? items.filter(item => item.predictionId === predictionId) : items;
+    const ofType = source.filter(item => item.type === type);
     if (ofType.length === 0) return [];
 
     // Newest run first (createdAt DESC already from API, but be explicit).
@@ -120,6 +121,29 @@ function filterActiveItems(items: Recommendation[], type: string): Recommendatio
         if (!a.isPrimary && b.isPrimary) return 1;
         return (confidenceOf(b) ?? -1) - (confidenceOf(a) ?? -1);
     });
+}
+
+function getPredictionRuns(items: Recommendation[]) {
+    const groups = new Map<string, { id: string; createdAt: string; count: number }>();
+    for (const item of items) {
+        if (!item.predictionId) continue;
+        const existing = groups.get(item.predictionId);
+        if (!existing) {
+            groups.set(item.predictionId, {
+                id: item.predictionId,
+                createdAt: item.createdAt,
+                count: 1,
+            });
+        } else {
+            existing.count += 1;
+            if (new Date(item.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
+                existing.createdAt = item.createdAt;
+            }
+        }
+    }
+    return Array.from(groups.values()).sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
 }
 
 /** Build Figma-style field cards from a recommendation payload */
@@ -384,6 +408,7 @@ export default function Recommends() {
     const [items, setItems] = useState<Recommendation[]>([]);
     const [farms, setFarms] = useState<any[]>([]);
     const [selectedFarmId, setSelectedFarmId] = useState<string | null>(null);
+    const [selectedPredictionId, setSelectedPredictionId] = useState<string | null>(null);
     const [firstTime, setFirstTime] = useState(false);
     const [activeType, setActiveType] = useState('crop');
     const [choiceIndex, setChoiceIndex] = useState(0);
@@ -418,7 +443,9 @@ export default function Recommends() {
                     setFirstTime(true);
                     setView('form');
                 } else {
+                    const runs = getPredictionRuns(loaded);
                     const primary = loaded.find((r: any) => r.isPrimary) || loaded[0];
+                    setSelectedPredictionId(runs[0]?.id || primary?.predictionId || null);
                     setActiveType(primary?.type || 'crop');
                     setChoiceIndex(0);
                     setView('list');
@@ -440,10 +467,13 @@ export default function Recommends() {
         setItems(loaded);
         if (loaded.length === 0) {
             setFirstTime(true);
+            setSelectedPredictionId(null);
             setView('form');
         } else {
             setFirstTime(false);
+            const runs = getPredictionRuns(loaded);
             const primary = loaded.find((r: any) => r.isPrimary) || loaded[0];
+            setSelectedPredictionId(runs[0]?.id || primary?.predictionId || null);
             setActiveType(primary?.type || 'crop');
             setView('list');
         }
@@ -452,7 +482,12 @@ export default function Recommends() {
     const onRefresh = async () => {
         if (!selectedFarmId) return;
         setRefreshing(true);
-        setItems(await loadRecommendations(selectedFarmId));
+        const loaded = await loadRecommendations(selectedFarmId);
+        setItems(loaded);
+        const runs = getPredictionRuns(loaded);
+        if (!runs.some(run => run.id === selectedPredictionId)) {
+            setSelectedPredictionId(runs[0]?.id || null);
+        }
         setRefreshing(false);
     };
 
@@ -463,13 +498,16 @@ export default function Recommends() {
         setItems(loaded);
         setFirstTime(false);
         const hasCrop = (result?.recommendations || loaded).some((r: any) => r.type === 'crop');
+        const runs = getPredictionRuns(loaded);
+        setSelectedPredictionId(runs[0]?.id || loaded[0]?.predictionId || null);
         setActiveType(hasCrop ? 'crop' : (loaded[0]?.type || 'crop'));
         setChoiceIndex(0);
         setView('list');
     };
 
     const activeCategory = CATEGORIES.find(c => c.type === activeType) || CATEGORIES[0];
-    const activeItems = filterActiveItems(items, activeType);
+    const predictionRuns = getPredictionRuns(items);
+    const activeItems = filterActiveItems(items, activeType, selectedPredictionId);
 
     // For crop: Choice pills switch between alternatives. Other types: show primary / first only.
     const showChoices = activeType === 'crop' && activeItems.length > 1;
@@ -491,10 +529,7 @@ export default function Recommends() {
             <View style={styles.header}>
                 <View style={styles.headerRow}>
                     <TouchableOpacity
-                        onPress={() => {
-                            if (view === 'form' && items.length > 0) setView('list');
-                            else router.replace('/(main)/dashboard');
-                        }}
+                        onPress={() => router.replace('/(main)/dashboard')}
                         style={styles.headerBtn}
                     >
                         <Ionicons name="arrow-back" size={24} color="#fff" />
@@ -560,6 +595,40 @@ export default function Recommends() {
                                     );
                                 })}
                             </ScrollView>
+                        )}
+
+                        {predictionRuns.length > 1 && (
+                            <View style={styles.historyBox}>
+                                <View style={styles.historyHeader}>
+                                    <View>
+                                        <Text style={styles.historyTitle}>Prediction History</Text>
+                                        <Text style={styles.historySubtitle}>Switch between previous analysis runs</Text>
+                                    </View>
+                                    <Text style={styles.historyCount}>{predictionRuns.length} runs</Text>
+                                </View>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
+                                    {predictionRuns.map((run, index) => {
+                                        const selected = selectedPredictionId === run.id;
+                                        return (
+                                            <TouchableOpacity
+                                                key={run.id}
+                                                onPress={() => {
+                                                    setSelectedPredictionId(run.id);
+                                                    setChoiceIndex(0);
+                                                }}
+                                                style={[styles.historyChip, selected && styles.historyChipActive]}
+                                            >
+                                                <Text style={[styles.historyChipTitle, selected && styles.historyChipTitleActive]}>
+                                                    {index === 0 ? 'Latest' : `Run ${index + 1}`}
+                                                </Text>
+                                                <Text style={[styles.historyChipDate, selected && styles.historyChipDateActive]}>
+                                                    {formatDate(run.createdAt)}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </ScrollView>
+                            </View>
                         )}
 
                         {/* Section title */}
@@ -693,6 +762,73 @@ const styles = StyleSheet.create({
     farmChipActive: { backgroundColor: '#34643F', borderColor: '#34643F' },
     farmChipText: { marginLeft: 4, fontSize: 13, fontWeight: '600', color: '#374151' },
     farmChipTextActive: { color: '#fff' },
+    historyBox: {
+        backgroundColor: '#fff',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#E8E8E0',
+        padding: 12,
+        marginBottom: 16,
+    },
+    historyHeader: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+        marginBottom: 10,
+        gap: 10,
+    },
+    historyTitle: {
+        color: '#111827',
+        fontSize: 14,
+        fontWeight: '800',
+    },
+    historySubtitle: {
+        color: '#6B7280',
+        fontSize: 12,
+        fontWeight: '600',
+        marginTop: 2,
+    },
+    historyCount: {
+        color: '#34643F',
+        backgroundColor: '#E8F5E9',
+        fontSize: 11,
+        fontWeight: '800',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 999,
+        overflow: 'hidden',
+    },
+    historyChip: {
+        minWidth: 124,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#D1D5DB',
+        backgroundColor: '#FAFAF7',
+        paddingHorizontal: 12,
+        paddingVertical: 9,
+        marginRight: 8,
+    },
+    historyChipActive: {
+        backgroundColor: '#34643F',
+        borderColor: '#34643F',
+    },
+    historyChipTitle: {
+        color: '#374151',
+        fontSize: 13,
+        fontWeight: '800',
+    },
+    historyChipTitleActive: {
+        color: '#fff',
+    },
+    historyChipDate: {
+        color: '#6B7280',
+        fontSize: 11,
+        fontWeight: '600',
+        marginTop: 3,
+    },
+    historyChipDateActive: {
+        color: '#E8F5E9',
+    },
     sectionTitle: { color: '#34643F', fontSize: 18, fontWeight: '700' },
     sectionSubtitle: { color: '#4B5563', fontSize: 13, fontWeight: '500', marginTop: 4, lineHeight: 18 },
     choiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },

@@ -49,7 +49,7 @@ const MOCK_PRESETS: {
 }[] = [
     {
         id: 'potatoes',
-        label: '🥔 Highland Potatoes',
+        label: 'Highland Potatoes',
         hint: 'Cool, humid, mid rainfall → Irish Potatoes',
         cropType: 'Irish Potatoes',
         metrics: {
@@ -64,7 +64,7 @@ const MOCK_PRESETS: {
     },
     {
         id: 'rice',
-        label: '🌾 Valley Rice',
+        label: 'Valley Rice',
         hint: 'Warm, very wet → rice',
         cropType: 'rice',
         metrics: {
@@ -79,7 +79,7 @@ const MOCK_PRESETS: {
     },
     {
         id: 'tomatoes',
-        label: '🍅 Garden Tomatoes',
+        label: 'Garden Tomatoes',
         hint: 'Mild, drier air → Tomatoes',
         cropType: 'Tomatoes',
         metrics: {
@@ -145,7 +145,6 @@ export default function PredictionForm({ onSuccess, firstTime }: Props) {
         if (!preset) return;
         setActivePreset(preset.id);
         setMetrics({ ...preset.metrics });
-        setCropType(preset.cropType);
     };
 
     const buildImageFile = (asset: ImagePicker.ImagePickerAsset) => {
@@ -221,7 +220,24 @@ export default function PredictionForm({ onSuccess, firstTime }: Props) {
     };
 
     return (
-        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        <ScrollView
+            style={styles.screen}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+        >
+            <View style={styles.introCard}>
+                <View style={styles.introIcon}>
+                    <Ionicons name="analytics-outline" size={24} color="#0B4D26" />
+                </View>
+                <View style={{ flex: 1 }}>
+                    <Text style={styles.introTitle}>New Soil Analysis</Text>
+                    <Text style={styles.introText}>
+                        Add a soil photo and readings. You can use a scenario while sensors are not connected.
+                    </Text>
+                </View>
+            </View>
+
             {firstTime && (
                 <View style={styles.banner}>
                     <Ionicons name="sparkles-outline" size={20} color="#0B4D26" />
@@ -232,102 +248,114 @@ export default function PredictionForm({ onSuccess, firstTime }: Props) {
             )}
 
             {/* Farm selection */}
-            <Text style={styles.sectionTitle}>Farm</Text>
-            {loadingFarms ? (
-                <ActivityIndicator color="#0B4D26" style={{ marginVertical: 10 }} />
-            ) : farms.length === 0 ? (
-                <TouchableOpacity style={styles.noFarmCard} onPress={() => router.push('/RegisterFarm')}>
-                    <Ionicons name="add-circle-outline" size={22} color="#0B4D26" />
-                    <Text style={styles.noFarmText}>No farms yet — register one to continue</Text>
-                </TouchableOpacity>
-            ) : (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
-                    {farms.map(farm => (
-                        <TouchableOpacity
-                            key={farm.id}
-                            style={[styles.chip, selectedFarmId === farm.id && styles.chipActive]}
-                            onPress={() => setSelectedFarmId(farm.id)}
-                        >
-                            <Text style={selectedFarmId === farm.id ? styles.chipTextActive : styles.chipText}>
-                                {farm.name}
-                            </Text>
-                        </TouchableOpacity>
-                    ))}
-                </ScrollView>
-            )}
+            <View style={styles.sectionCard}>
+                <SectionHeader icon="location-outline" title="Farm" subtitle="Choose which farm this analysis belongs to." />
+                {loadingFarms ? (
+                    <ActivityIndicator color="#0B4D26" style={{ marginVertical: 10 }} />
+                ) : farms.length === 0 ? (
+                    <TouchableOpacity style={styles.noFarmCard} onPress={() => router.push('/RegisterFarm')}>
+                        <Ionicons name="add-circle-outline" size={22} color="#0B4D26" />
+                        <Text style={styles.noFarmText}>No farms yet — register one to continue</Text>
+                    </TouchableOpacity>
+                ) : (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        {farms.map(farm => (
+                            <TouchableOpacity
+                                key={farm.id}
+                                style={[styles.chip, selectedFarmId === farm.id && styles.chipActive]}
+                                onPress={() => setSelectedFarmId(farm.id)}
+                            >
+                                <Text style={selectedFarmId === farm.id ? styles.chipTextActive : styles.chipText}>
+                                    {farm.name}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+                )}
+            </View>
 
             {/* Soil photo */}
-            <Text style={styles.sectionTitle}>Soil Photo</Text>
-            {image ? (
-                <View style={styles.photoPreviewWrap}>
-                    <Image source={{ uri: image.uri }} style={styles.photoPreview} />
-                    <TouchableOpacity style={styles.photoRemove} onPress={() => setImage(null)}>
-                        <Ionicons name="close" size={18} color="white" />
-                    </TouchableOpacity>
-                </View>
-            ) : (
-                <View style={styles.photoButtons}>
-                    <TouchableOpacity style={styles.photoBtn} onPress={takePhoto}>
-                        <Ionicons name="camera-outline" size={26} color="#0B4D26" />
-                        <Text style={styles.photoBtnText}>Take Photo</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.photoBtn} onPress={pickFromGallery}>
-                        <Ionicons name="images-outline" size={26} color="#0B4D26" />
-                        <Text style={styles.photoBtnText}>From Gallery</Text>
-                    </TouchableOpacity>
-                </View>
-            )}
+            <View style={styles.sectionCard}>
+                <SectionHeader icon="camera-outline" title="Soil Photo" subtitle="Use a clear photo of the soil surface." />
+                {image ? (
+                    <View style={styles.photoPreviewWrap}>
+                        <Image source={{ uri: image.uri }} style={styles.photoPreview} />
+                        <TouchableOpacity style={styles.photoRemove} onPress={() => setImage(null)}>
+                            <Ionicons name="close" size={18} color="white" />
+                        </TouchableOpacity>
+                    </View>
+                ) : (
+                    <View style={styles.photoButtons}>
+                        <TouchableOpacity style={styles.photoBtn} onPress={takePhoto}>
+                            <Ionicons name="camera-outline" size={28} color="#0B4D26" />
+                            <Text style={styles.photoBtnText}>Take Photo</Text>
+                            <Text style={styles.photoBtnSub}>Open camera</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.photoBtn} onPress={pickFromGallery}>
+                            <Ionicons name="images-outline" size={28} color="#0B4D26" />
+                            <Text style={styles.photoBtnText}>From Gallery</Text>
+                            <Text style={styles.photoBtnSub}>Choose image</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+            </View>
 
             {/* Sensor readings */}
-            <View style={styles.readingsHeader}>
-                <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Sensor Readings</Text>
-            </View>
-            <Text style={styles.presetHint}>
-                Try a scenario to stress-test the model — each profile targets a different top crop.
-            </Text>
-            <View style={styles.presetList}>
-                {MOCK_PRESETS.map(preset => {
-                    const selected = activePreset === preset.id;
-                    return (
-                        <TouchableOpacity
-                            key={preset.id}
-                            style={[styles.presetCard, selected && styles.presetCardActive]}
-                            onPress={() => applyPreset(preset.id)}
-                            activeOpacity={0.85}
-                        >
-                            <Text style={[styles.presetLabel, selected && styles.presetLabelActive]}>
-                                {preset.label}
-                            </Text>
-                            <Text style={[styles.presetSub, selected && styles.presetSubActive]}>
-                                {preset.hint}
-                            </Text>
-                        </TouchableOpacity>
-                    );
-                })}
-            </View>
+            <View style={styles.sectionCard}>
+                <SectionHeader icon="speedometer-outline" title="Sensor Readings" subtitle="Fill manually or choose a mock scenario." />
+                <View style={styles.presetList}>
+                    {MOCK_PRESETS.map(preset => {
+                        const selected = activePreset === preset.id;
+                        return (
+                            <TouchableOpacity
+                                key={preset.id}
+                                style={[styles.presetCard, selected && styles.presetCardActive]}
+                                onPress={() => applyPreset(preset.id)}
+                                activeOpacity={0.85}
+                            >
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[styles.presetLabel, selected && styles.presetLabelActive]}>
+                                        {preset.label}
+                                    </Text>
+                                    <Text style={[styles.presetSub, selected && styles.presetSubActive]}>
+                                        {preset.hint}
+                                    </Text>
+                                </View>
+                                {selected ? (
+                                    <Ionicons name="checkmark-circle" size={22} color="#0B4D26" />
+                                ) : (
+                                    <Text style={styles.usePresetText}>Use</Text>
+                                )}
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
 
-            <View style={styles.metricsGrid}>
-                <MetricInput label="Temperature (°C)" value={metrics.temperature} onChange={(v) => setMetric('temperature', v)} />
-                <MetricInput label="Humidity (%)" value={metrics.humidity} onChange={(v) => setMetric('humidity', v)} />
-                <MetricInput label="Rainfall (mm)" value={metrics.rainfall} onChange={(v) => setMetric('rainfall', v)} />
-                <MetricInput label="Soil Moisture (%)" value={metrics.soilMoisture} onChange={(v) => setMetric('soilMoisture', v)} optional />
-                <MetricInput label="Nitrogen (N)" value={metrics.nitrogen} onChange={(v) => setMetric('nitrogen', v)} />
-                <MetricInput label="Phosphorus (P)" value={metrics.phosphorus} onChange={(v) => setMetric('phosphorus', v)} />
-                <MetricInput label="Potassium (K)" value={metrics.potassium} onChange={(v) => setMetric('potassium', v)} />
+                <View style={styles.metricsGrid}>
+                    <MetricInput label="Temperature" unit="°C" value={metrics.temperature} onChange={(v) => setMetric('temperature', v)} />
+                    <MetricInput label="Humidity" unit="%" value={metrics.humidity} onChange={(v) => setMetric('humidity', v)} />
+                    <MetricInput label="Rainfall" unit="mm" value={metrics.rainfall} onChange={(v) => setMetric('rainfall', v)} />
+                    <MetricInput label="Soil Moisture" unit="%" value={metrics.soilMoisture} onChange={(v) => setMetric('soilMoisture', v)} optional />
+                    <MetricInput label="Nitrogen" unit="N" value={metrics.nitrogen} onChange={(v) => setMetric('nitrogen', v)} />
+                    <MetricInput label="Phosphorus" unit="P" value={metrics.phosphorus} onChange={(v) => setMetric('phosphorus', v)} />
+                    <MetricInput label="Potassium" unit="K" value={metrics.potassium} onChange={(v) => setMetric('potassium', v)} />
+                </View>
             </View>
 
             {/* Optional crop type */}
-            <Text style={styles.sectionTitle}>Crop You're Considering (optional)</Text>
-            <View style={styles.cropRow}>
-                {CROP_TYPES.map(crop => (
-                    <TouchableOpacity
-                        key={crop}
-                        style={[styles.chip, cropType === crop && styles.chipActive]}
-                        onPress={() => setCropType(prev => (prev === crop ? null : crop))}
-                    >
-                        <Text style={cropType === crop ? styles.chipTextActive : styles.chipText}>{crop}</Text>
-                    </TouchableOpacity>
-                ))}
+            <View style={styles.sectionCard}>
+                <SectionHeader icon="leaf-outline" title="Crop You're Considering" subtitle="Optional. Leave blank to let the model decide freely." />
+                <View style={styles.cropRow}>
+                    {CROP_TYPES.map(crop => (
+                        <TouchableOpacity
+                            key={crop}
+                            style={[styles.chip, cropType === crop && styles.chipActive]}
+                            onPress={() => setCropType(prev => (prev === crop ? null : crop))}
+                        >
+                            <Text style={cropType === crop ? styles.chipTextActive : styles.chipText}>{crop}</Text>
+                        </TouchableOpacity>
+                    ))}
+                </View>
             </View>
 
             <TouchableOpacity style={styles.mainButton} onPress={handleSubmit} disabled={loading}>
@@ -352,28 +380,100 @@ export default function PredictionForm({ onSuccess, firstTime }: Props) {
     );
 }
 
-function MetricInput({ label, value, onChange, optional }: { label: string; value: string; onChange: (v: string) => void; optional?: boolean }) {
+function SectionHeader({ icon, title, subtitle }: { icon: keyof typeof Ionicons.glyphMap; title: string; subtitle?: string }) {
+    return (
+        <View style={styles.sectionHeader}>
+            <View style={styles.sectionIcon}>
+                <Ionicons name={icon} size={18} color="#0B4D26" />
+            </View>
+            <View style={{ flex: 1 }}>
+                <Text style={styles.sectionTitle}>{title}</Text>
+                {subtitle ? <Text style={styles.sectionSubtitle}>{subtitle}</Text> : null}
+            </View>
+        </View>
+    );
+}
+
+function MetricInput({
+    label,
+    unit,
+    value,
+    onChange,
+    optional,
+}: {
+    label: string;
+    unit: string;
+    value: string;
+    onChange: (v: string) => void;
+    optional?: boolean;
+}) {
     return (
         <View style={styles.metricItem}>
-            <Text style={styles.metricLabel}>
-                {label}{optional ? <Text style={styles.optionalTag}> · optional</Text> : ''}
-            </Text>
-            <TextInput
-                style={styles.metricInput}
-                value={value}
-                onChangeText={onChange}
-                keyboardType="decimal-pad"
-                placeholder="0.0"
-                placeholderTextColor="#9CA3AF"
-            />
+            <View style={styles.metricLabelRow}>
+                <Text style={styles.metricLabel}>{label}</Text>
+                <Text style={styles.unitBadge}>{unit}</Text>
+            </View>
+            <View style={styles.inputWrap}>
+                <TextInput
+                    style={styles.metricInput}
+                    value={value}
+                    onChangeText={onChange}
+                    keyboardType="decimal-pad"
+                    placeholder="0.0"
+                    placeholderTextColor="#9CA3AF"
+                />
+            </View>
+            {optional ? <Text style={styles.optionalTag}>Optional</Text> : null}
         </View>
     );
 }
 
 const styles = StyleSheet.create({
+    screen: {
+        flex: 1,
+        backgroundColor: '#F8F8F0',
+        borderTopLeftRadius: 28,
+        borderTopRightRadius: 28,
+    },
     scrollContent: {
-        padding: 20,
-        paddingBottom: 40,
+        padding: 16,
+        paddingBottom: 32,
+    },
+    introCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        backgroundColor: '#fff',
+        borderRadius: 18,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: '#E8E8E0',
+        marginBottom: 14,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 3,
+        elevation: 2,
+    },
+    introIcon: {
+        width: 46,
+        height: 46,
+        borderRadius: 23,
+        backgroundColor: '#E8F5E9',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    introTitle: {
+        color: '#111827',
+        fontSize: 17,
+        fontWeight: '800',
+    },
+    introText: {
+        color: '#4B5563',
+        fontSize: 13,
+        fontWeight: '600',
+        lineHeight: 19,
+        marginTop: 3,
     },
     banner: {
         flexDirection: 'row',
@@ -391,12 +491,44 @@ const styles = StyleSheet.create({
         lineHeight: 18,
         fontWeight: '500',
     },
+    sectionCard: {
+        backgroundColor: '#fff',
+        borderRadius: 18,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: '#E8E8E0',
+        marginBottom: 14,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 3,
+        elevation: 2,
+    },
+    sectionHeader: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 10,
+        marginBottom: 14,
+    },
+    sectionIcon: {
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        backgroundColor: '#E8F5E9',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
     sectionTitle: {
         fontSize: 16,
-        fontWeight: '700',
-        color: '#0B4D26',
-        marginBottom: 10,
-        marginTop: 6,
+        fontWeight: '800',
+        color: '#111827',
+    },
+    sectionSubtitle: {
+        color: '#6B7280',
+        fontSize: 12,
+        fontWeight: '600',
+        lineHeight: 17,
+        marginTop: 2,
     },
     noFarmCard: {
         flexDirection: 'row',
@@ -419,7 +551,6 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#D1D5DB',
         marginRight: 8,
-        marginBottom: 8,
     },
     chipActive: {
         backgroundColor: '#0B4D26',
@@ -428,6 +559,7 @@ const styles = StyleSheet.create({
     chipText: {
         color: '#374151',
         fontSize: 14,
+        fontWeight: '700',
     },
     chipTextActive: {
         color: 'white',
@@ -437,23 +569,28 @@ const styles = StyleSheet.create({
     photoButtons: {
         flexDirection: 'row',
         gap: 12,
-        marginBottom: 10,
     },
     photoBtn: {
         flex: 1,
-        backgroundColor: 'white',
+        backgroundColor: '#FAFAF7',
         borderWidth: 1,
-        borderColor: '#D1D5DB',
+        borderColor: '#BFD0C3',
         borderStyle: 'dashed',
-        borderRadius: 12,
+        borderRadius: 16,
         alignItems: 'center',
-        paddingVertical: 22,
-        gap: 6,
+        paddingVertical: 20,
     },
     photoBtnText: {
         color: '#0B4D26',
-        fontWeight: '600',
+        fontWeight: '800',
         fontSize: 13,
+        marginTop: 8,
+    },
+    photoBtnSub: {
+        color: '#6B7280',
+        fontWeight: '600',
+        fontSize: 11,
+        marginTop: 2,
     },
     photoPreviewWrap: {
         marginBottom: 10,
@@ -474,32 +611,20 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    readingsHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        marginTop: 10,
-        marginBottom: 6,
-    },
-    presetHint: {
-        color: '#6B7280',
-        fontSize: 12,
-        fontWeight: '500',
-        marginBottom: 10,
-        lineHeight: 17,
-    },
     presetList: {
-        gap: 8,
+        gap: 10,
         marginBottom: 14,
     },
     presetCard: {
-        backgroundColor: '#fff',
+        backgroundColor: '#FAFAF7',
         borderWidth: 1,
-        borderColor: '#D1D5DB',
-        borderRadius: 12,
+        borderColor: '#E5E7EB',
+        borderRadius: 14,
         paddingVertical: 12,
         paddingHorizontal: 14,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
     },
     presetCardActive: {
         backgroundColor: '#E8F5E9',
@@ -508,7 +633,7 @@ const styles = StyleSheet.create({
     presetLabel: {
         color: '#111827',
         fontSize: 14,
-        fontWeight: '700',
+        fontWeight: '800',
     },
     presetLabelActive: {
         color: '#0B4D26',
@@ -522,6 +647,16 @@ const styles = StyleSheet.create({
     presetSubActive: {
         color: '#34643F',
     },
+    usePresetText: {
+        color: '#0B4D26',
+        fontSize: 12,
+        fontWeight: '800',
+        backgroundColor: '#E8F5E9',
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 999,
+        overflow: 'hidden',
+    },
     metricsGrid: {
         flexDirection: 'row',
         flexWrap: 'wrap',
@@ -529,39 +664,65 @@ const styles = StyleSheet.create({
     },
     metricItem: {
         width: '48%',
-        marginBottom: 14,
+        marginBottom: 16,
+    },
+    metricLabelRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 6,
     },
     metricLabel: {
         fontSize: 13,
-        color: '#374151',
-        marginBottom: 5,
-        fontWeight: '500',
+        color: '#1F2937',
+        fontWeight: '800',
     },
-    optionalTag: {
-        color: '#9CA3AF',
-        fontWeight: '400',
+    unitBadge: {
+        color: '#34643F',
+        backgroundColor: '#E8F5E9',
+        fontSize: 11,
+        fontWeight: '800',
+        paddingHorizontal: 7,
+        paddingVertical: 2,
+        borderRadius: 999,
+        overflow: 'hidden',
     },
-    metricInput: {
+    inputWrap: {
         backgroundColor: 'white',
         borderWidth: 1,
         borderColor: '#D1D5DB',
-        borderRadius: 10,
+        borderRadius: 12,
+    },
+    optionalTag: {
+        color: '#6B7280',
+        fontWeight: '700',
+        fontSize: 11,
+        marginTop: 4,
+    },
+    metricInput: {
         paddingVertical: 10,
         paddingHorizontal: 12,
         fontSize: 16,
         color: '#111827',
+        fontWeight: '700',
     },
     cropRow: {
         flexDirection: 'row',
         flexWrap: 'wrap',
-        marginBottom: 10,
+        rowGap: 8,
     },
     mainButton: {
-        backgroundColor: '#0B4D26',
-        borderRadius: 12,
+        backgroundColor: '#125C2D',
+        borderRadius: 16,
         paddingVertical: 16,
         alignItems: 'center',
-        marginTop: 16,
+        marginTop: 4,
+        marginBottom: 8,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.18,
+        shadowRadius: 6,
+        elevation: 4,
     },
     mainButtonText: {
         color: 'white',
