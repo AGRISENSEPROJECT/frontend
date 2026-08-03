@@ -86,6 +86,15 @@ export const authApi = {
         getPosts: '/api/community/posts',
         likePost: (id: string) => `/api/community/posts/${id}/like`,
         commentPost: (id: string) => `/api/community/posts/${id}/comment`,
+        deletePost: (id: string) => `/api/community/posts/${id}`,
+        deleteComment: (id: string) => `/api/community/comments/${id}`,
+        searchUsers: '/api/community/users',
+        conversations: '/api/community/conversations',
+        directConversation: '/api/community/conversations/direct',
+        groupConversation: '/api/community/conversations/group',
+        conversationById: (id: string) => `/api/community/conversations/${id}`,
+        conversationMessages: (id: string) => `/api/community/conversations/${id}/messages`,
+        conversationRead: (id: string) => `/api/community/conversations/${id}/read`,
     },
 
     signup: async (data: SignupData): Promise<SignupResponse> => {
@@ -283,15 +292,19 @@ export const authApi = {
         });
     },
 
-    createPost: async (data: { description: string; imageUrl?: string }): Promise<any> => {
+    createPost: async (data: { description: string }): Promise<any> => {
         return await authenticatedFetch(authApi.endpoints.createPost, {
             method: 'POST',
             body: JSON.stringify(data),
         });
     },
 
-    getPosts: async (): Promise<any> => {
-        return await authenticatedFetch(authApi.endpoints.getPosts, {
+    getPosts: async (params: { page?: number; limit?: number } = {}): Promise<any> => {
+        const query = new URLSearchParams();
+        if (params.page) query.append('page', String(params.page));
+        if (params.limit) query.append('limit', String(params.limit));
+        const qs = query.toString();
+        return await authenticatedFetch(`${authApi.endpoints.getPosts}${qs ? `?${qs}` : ''}`, {
             method: 'GET',
         });
     },
@@ -306,6 +319,79 @@ export const authApi = {
         return await authenticatedFetch(authApi.endpoints.commentPost(postId), {
             method: 'POST',
             body: JSON.stringify({ content }),
+        });
+    },
+
+    deletePost: async (postId: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.deletePost(postId), {
+            method: 'DELETE',
+        });
+    },
+
+    deleteComment: async (commentId: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.deleteComment(commentId), {
+            method: 'DELETE',
+        });
+    },
+
+    searchCommunityUsers: async (q?: string): Promise<any[]> => {
+        const qs = q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : '';
+        return await authenticatedFetch(`${authApi.endpoints.searchUsers}${qs}`, {
+            method: 'GET',
+        });
+    },
+
+    listConversations: async (type?: 'direct' | 'group'): Promise<any[]> => {
+        const qs = type ? `?type=${type}` : '';
+        return await authenticatedFetch(`${authApi.endpoints.conversations}${qs}`, {
+            method: 'GET',
+        });
+    },
+
+    createDirectConversation: async (userId: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.directConversation, {
+            method: 'POST',
+            body: JSON.stringify({ userId }),
+        });
+    },
+
+    createGroupConversation: async (name: string, memberIds: string[]): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.groupConversation, {
+            method: 'POST',
+            body: JSON.stringify({ name, memberIds }),
+        });
+    },
+
+    getConversation: async (id: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.conversationById(id), {
+            method: 'GET',
+        });
+    },
+
+    getConversationMessages: async (
+        id: string,
+        params: { page?: number; limit?: number } = {},
+    ): Promise<any> => {
+        const query = new URLSearchParams();
+        if (params.page) query.append('page', String(params.page));
+        if (params.limit) query.append('limit', String(params.limit));
+        const qs = query.toString();
+        return await authenticatedFetch(
+            `${authApi.endpoints.conversationMessages(id)}${qs ? `?${qs}` : ''}`,
+            { method: 'GET' },
+        );
+    },
+
+    sendConversationMessage: async (id: string, content: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.conversationMessages(id), {
+            method: 'POST',
+            body: JSON.stringify({ content }),
+        });
+    },
+
+    markConversationRead: async (id: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.conversationRead(id), {
+            method: 'POST',
         });
     },
 
