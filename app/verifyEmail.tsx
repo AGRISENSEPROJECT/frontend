@@ -257,7 +257,7 @@ export default function VerifyEmail() {
                 visible={modalVisible}
                 onClose={() => {
                     setModalVisible(false);
-                    router.push('/RegisterFarm');
+                    router.replace('/signin');
                 }}
             />
         </SafeAreaView>

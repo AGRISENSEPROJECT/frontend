@@ -3,12 +3,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Ionicons, AntDesign } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { authApi, userHasFarm } from '@/services/api';
+import { authApi } from '@/services/api';
 import StatusModal from '@/components/ui/StatusModal';
-import ENV from '@/config/env';
 import { isFarmerRole } from '@/utils/userDisplay';
+import { getPostAuthRoute, persistAuthSession } from '@/utils/session';
 
 const PHONE_RE = /^\+?[1-9]\d{1,14}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -64,15 +63,14 @@ export default function SignIn() {
 
             const data = await authApi.signin(payload);
 
-            // Handle unverified email response schema
+            // HTTP 200 special body — email not verified, no tokens
             if (data.isEmailVerified === false) {
                 router.push(
-                    `/verifyEmail?email=${encodeURIComponent(data.email || (id.includes('@') ? id : ''))}&userId=${data.userId}`,
+                    `/verifyEmail?email=${encodeURIComponent(data.email || (id.includes('@') ? id : ''))}&userId=${data.userId || ''}`,
                 );
                 return;
             }
 
-            // Store token and user info for verified users
             if (data.access_token && data.user) {
                 if (!isFarmerRole(data.user.role)) {
                     setStatusModal({
@@ -85,20 +83,13 @@ export default function SignIn() {
                     return;
                 }
 
-                await AsyncStorage.setItem('token', data.access_token);
-                if (data.refresh_token) {
-                    await AsyncStorage.setItem('refreshToken', data.refresh_token);
-                }
-                await AsyncStorage.setItem('user', JSON.stringify(data.user));
-                if (ENV.API_URL) {
-                    await AsyncStorage.setItem('api_url_bound', ENV.API_URL);
-                }
+                await persistAuthSession({
+                    accessToken: data.access_token,
+                    refreshToken: data.refresh_token,
+                    user: data.user,
+                });
 
-                if (userHasFarm(data.user)) {
-                    router.push('/(main)/dashboard');
-                } else {
-                    router.push('/RegisterFarm');
-                }
+                router.replace(getPostAuthRoute(data.user) as any);
             }
         } catch (error: any) {
             setStatusModal({
@@ -134,7 +125,6 @@ export default function SignIn() {
                     <Text className="text-2xl font-bold">Sign in</Text>
                 </View>
 
-                {/* Illustration View */}
                 <View className="items-center justify-center my-8">
                     <Image
                         source={require('../assets/login-illustration.png')}
@@ -200,21 +190,21 @@ export default function SignIn() {
                                 <AntDesign name="google" size={24} color="#DB4437" />
                             </TouchableOpacity>
                             <TouchableOpacity className="p-2">
+                                <Ionicons name="logo-facebook" size={24} color="#4267B2" />
+                            </TouchableOpacity>
+                            <TouchableOpacity className="p-2">
                                 <AntDesign name="twitter" size={24} color="#1DA1F2" />
                             </TouchableOpacity>
                             <TouchableOpacity className="p-2">
-                                <AntDesign name="facebook" size={24} color="#4267B2" />
-                            </TouchableOpacity>
-                            <TouchableOpacity className="p-2">
-                                <AntDesign name="instagram" size={24} color="#E4405F" />
+                                <AntDesign name="instagram" size={24} color="#E1306C" />
                             </TouchableOpacity>
                         </View>
                     </View>
 
-                    <View className="flex-row justify-center mt-6 mb-8">
-                        <Text className="text-gray-600">Don't have an account? </Text>
+                    <View className="flex-row justify-center mt-8 mb-10">
+                        <Text className="text-gray-500">Don't have an account? </Text>
                         <TouchableOpacity onPress={() => router.push('/signup')}>
-                            <Text className="text-[#0B4D26] font-semibold">Sign Up</Text>
+                            <Text className="text-[#0B4D26] font-semibold">Sign up</Text>
                         </TouchableOpacity>
                     </View>
                 </View>

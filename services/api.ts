@@ -1,5 +1,6 @@
 import ENV from '@/config/env';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { router } from 'expo-router';
 
 /** NestJS often returns `message` as a string or string[]. */
 export function apiErrorMessage(result: any, fallback = 'Request failed'): string {
@@ -10,6 +11,50 @@ export function apiErrorMessage(result: any, fallback = 'Request failed'): strin
     return fallback;
 }
 
+async function parseJsonSafe(response: Response): Promise<any> {
+    const text = await response.text();
+    if (!text) return {};
+    try {
+        return JSON.parse(text);
+    } catch {
+        return { message: text };
+    }
+}
+
+/** Single-flight refresh so parallel 401s don't race-revoke the session. */
+let refreshInFlight: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+    if (refreshInFlight) return refreshInFlight;
+
+    refreshInFlight = (async () => {
+        try {
+            const refreshToken = await AsyncStorage.getItem('refreshToken');
+            if (!refreshToken) return null;
+
+            const refreshResponse = await fetch(`${ENV.API_URL}/api/auth/refresh`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refreshToken }),
+            });
+            const refreshData = await parseJsonSafe(refreshResponse);
+            if (!refreshResponse.ok || !refreshData.access_token) {
+                await AsyncStorage.multiRemove(['token', 'refreshToken', 'user']);
+                return null;
+            }
+            await AsyncStorage.setItem('token', refreshData.access_token);
+            return refreshData.access_token as string;
+        } catch (error) {
+            console.error('Token refresh failed:', error);
+            return null;
+        } finally {
+            refreshInFlight = null;
+        }
+    })();
+
+    return refreshInFlight;
+}
+
 // Helper for authenticated requests with automatic token refresh
 const authenticatedFetch = async (endpoint: string, options: any = {}): Promise<any> => {
     let token = await AsyncStorage.getItem('token');
@@ -17,7 +62,7 @@ const authenticatedFetch = async (endpoint: string, options: any = {}): Promise<
     const makeRequest = async (tokenToUse: string) => {
         const headers: Record<string, string> = {
             ...options.headers,
-            'Authorization': `Bearer ${tokenToUse}`,
+            Authorization: `Bearer ${tokenToUse}`,
         };
         // Let fetch set the multipart boundary itself for FormData bodies
         if (!(options.body instanceof FormData)) {
@@ -31,47 +76,36 @@ const authenticatedFetch = async (endpoint: string, options: any = {}): Promise<
 
     let response = await makeRequest(token || '');
 
-    // If unauthorized (401), try to refresh token
+    // Access tokens expire in ~15m — refresh once, then retry.
     if (response.status === 401) {
-        const refreshToken = await AsyncStorage.getItem('refreshToken');
-        if (refreshToken) {
+        const newToken = await refreshAccessToken();
+        if (newToken) {
+            response = await makeRequest(newToken);
+        } else {
             try {
-                const refreshResponse = await fetch(`${ENV.API_URL}/api/auth/refresh`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ refreshToken }),
-                });
-
-                if (refreshResponse.ok) {
-                    const refreshData = await refreshResponse.json();
-                    const newToken = refreshData.access_token;
-
-                    // Save new token
-                    await AsyncStorage.setItem('token', newToken);
-
-                    // Retry original request with new token
-                    response = await makeRequest(newToken);
-                } else {
-                    // Refresh token expired or invalid - clear session
-                    await AsyncStorage.multiRemove(['token', 'refreshToken', 'user']);
-                }
-            } catch (error) {
-                console.error('Token refresh failed:', error);
+                router.replace('/signin');
+            } catch {
+                // Navigation may be unavailable during early boot
             }
         }
     }
 
-    const result = await response.json();
+    const result = await parseJsonSafe(response);
     if (!response.ok) {
         throw new Error(apiErrorMessage(result));
     }
     return result;
 };
 
-// The backend reports farm ownership as `farmsCount`; older code expected `hasFarm`.
-// Accept any of the known shapes so login/dashboard guards work correctly.
+// The backend reports farm ownership as `farmsCount` / `activeFarmId`; older code expected `hasFarm`.
 export const userHasFarm = (user: any): boolean =>
-    !!(user?.hasFarm || user?.farm || (user?.farmsCount ?? 0) > 0);
+    !!(
+        user?.hasFarm ||
+        user?.farm ||
+        user?.activeFarmId ||
+        (user?.farmsCount ?? 0) > 0 ||
+        user?.onboardingCompleted
+    );
 
 export type AuthUser = {
     id: string;
@@ -92,8 +126,11 @@ export type AuthUser = {
     farmsCount?: number;
     hasFarm?: boolean;
     provider?: string;
+    nationalId?: string | null;
     nationalIdVerified?: boolean;
     identityVerificationStatus?: string | null;
+    assignedRegions?: string[] | null;
+    lastLoginAt?: string | null;
 };
 
 export type CommunityAuthor = {
@@ -122,6 +159,9 @@ export const authApi = {
         refresh: '/api/auth/refresh',
         verifyEmail: '/api/auth/verify-otp',
         resendOTP: '/api/auth/resend-otp',
+        onboardingIdentity: '/api/auth/onboarding/identity',
+        onboardingFarm: '/api/auth/onboarding/farm',
+        onboardingStatus: '/api/auth/onboarding/status',
         registerFarm: '/api/farms',
         getFarms: '/api/farms',
         farmById: (id: string) => `/api/farms/${id}`,
@@ -155,14 +195,22 @@ export const authApi = {
 
     signup: async (data: SignupData): Promise<SignupResponse> => {
         try {
+            const body: SignupData = {
+                email: data.email.trim(),
+                password: data.password,
+                firstName: data.firstName.trim(),
+            };
+            if (data.lastName?.trim()) body.lastName = data.lastName.trim();
+            if (data.phoneNumber?.trim()) body.phoneNumber = data.phoneNumber.trim();
+
             const response = await fetch(`${ENV.API_URL}${authApi.endpoints.register}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(data),
+                body: JSON.stringify(body),
             });
-            const result = await response.json();
+            const result = await parseJsonSafe(response);
             if (!response.ok) {
                 throw new Error(apiErrorMessage(result, 'Signup failed'));
             }
@@ -186,7 +234,7 @@ export const authApi = {
                 },
                 body: JSON.stringify(body),
             });
-            const result = await response.json();
+            const result = await parseJsonSafe(response);
             if (!response.ok) {
                 throw new Error(apiErrorMessage(result, 'Login failed'));
             }
@@ -333,11 +381,14 @@ export const authApi = {
     },
 
     registerFarm: async (data: any, token: string): Promise<any> => {
+        const soilType = String(data.soilType || '')
+            .trim()
+            .toLowerCase();
         const payload: Record<string, any> = {
             name: data.farmName,
             size: parseFloat(data.farmSize) || 0,
-            soilType: data.soilType.toLowerCase(),
-            country: data.country,
+            soilType,
+            country: data.country || 'Rwanda',
             province: data.province,
             district: data.district,
             sector: data.sector,
@@ -347,10 +398,68 @@ export const authApi = {
             ownerEmail: data.emailAddress,
         };
         if (data.phoneNumber) payload.ownerPhone = data.phoneNumber;
+        if (data.latitude != null) payload.latitude = Number(data.latitude);
+        if (data.longitude != null) payload.longitude = Number(data.longitude);
 
         return await authenticatedFetch(authApi.endpoints.registerFarm, {
             method: 'POST',
             body: JSON.stringify(payload),
+        });
+    },
+
+    /** Step 2 — Rwanda national ID (farmers only). */
+    submitOnboardingIdentity: async (data: {
+        nationalId: string;
+        documentType?: string;
+        idImageUrl?: string;
+    }): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.onboardingIdentity, {
+            method: 'POST',
+            body: JSON.stringify({
+                nationalId: String(data.nationalId).trim(),
+                documentType: data.documentType || 'NATIONAL_ID',
+                ...(data.idImageUrl ? { idImageUrl: data.idImageUrl } : {}),
+            }),
+        });
+    },
+
+    /**
+     * Step 3 — first farm during onboarding.
+     * Completes onboarding and sets status ACTIVE (unlike POST /api/farms).
+     */
+    completeOnboardingFarm: async (data: any): Promise<any> => {
+        const soilType = String(data.soilType || '')
+            .trim()
+            .toLowerCase();
+        const payload: Record<string, any> = {
+            name: data.farmName,
+            province: data.province,
+            district: data.district,
+            sector: data.sector,
+            cell: data.cell,
+            village: data.village,
+            size: parseFloat(data.farmSize) || 0,
+            soilType,
+        };
+        if (data.latitude != null) payload.latitude = Number(data.latitude);
+        if (data.longitude != null) payload.longitude = Number(data.longitude);
+
+        return await authenticatedFetch(authApi.endpoints.onboardingFarm, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+    },
+
+    getOnboardingStatus: async (): Promise<{
+        onboardingStep: number;
+        onboardingCompleted: boolean;
+        identityVerificationStatus?: string | null;
+        nationalIdVerified?: boolean;
+        role?: string;
+        status?: string;
+    }> => {
+        return await authenticatedFetch(authApi.endpoints.onboardingStatus, {
+            method: 'GET',
         });
     },
 

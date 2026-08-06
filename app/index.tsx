@@ -6,18 +6,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import ENV from '@/config/env';
 import { authApi } from '@/services/api';
 import { isFarmerRole } from '@/utils/userDisplay';
+import { clearSession, getPostAuthRoute, writeStoredUser } from '@/utils/session';
 
 const API_URL_KEY = 'api_url_bound';
-
-async function clearSession() {
-  await AsyncStorage.multiRemove([
-    'token',
-    'refreshToken',
-    'user',
-    'skipFarm',
-    'preferredFarmId',
-  ]);
-}
 
 export default function Home() {
   const router = useRouter();
@@ -29,8 +20,7 @@ export default function Home() {
         const currentApi = ENV.API_URL || '';
         const boundApi = await AsyncStorage.getItem(API_URL_KEY);
 
-        // Frontend bug: tokens from another API host were trusted blindly.
-        // If the API URL changed, wipe the stale session.
+        // Tokens from another API host must not be trusted.
         if (boundApi && currentApi && boundApi !== currentApi) {
           await clearSession();
           await AsyncStorage.setItem(API_URL_KEY, currentApi);
@@ -52,12 +42,10 @@ export default function Home() {
 
         const user = JSON.parse(userJson);
 
-        // Validate the stored token against the *current* API before auto-routing.
         try {
           const profile = await authApi.getProfile(token);
           const freshUser = profile?.user || user;
 
-          // Mobile app is farmers-only — drop non-farmer sessions.
           if (!isFarmerRole(freshUser.role)) {
             await clearSession();
             setChecking(false);
@@ -65,20 +53,13 @@ export default function Home() {
           }
 
           if (profile?.user) {
-            await AsyncStorage.setItem('user', JSON.stringify(profile.user));
+            await writeStoredUser(profile.user);
             await AsyncStorage.setItem(API_URL_KEY, currentApi);
           }
 
-          if (freshUser.isEmailVerified === false) {
-            router.replace(
-              `/verifyEmail?email=${encodeURIComponent(freshUser.email || '')}&userId=${freshUser.id || ''}`,
-            );
-            return;
-          }
-
-          router.replace('/(main)/dashboard');
+          const skipFarm = (await AsyncStorage.getItem('skipFarm')) === 'true';
+          router.replace(getPostAuthRoute(freshUser, { skipFarm }) as any);
         } catch {
-          // Token invalid for this server — force a fresh login.
           await clearSession();
           setChecking(false);
         }

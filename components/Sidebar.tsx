@@ -16,6 +16,7 @@ import { authApi } from '@/services/api';
 import { disconnectCommunitySocket } from '@/services/communitySocket';
 import StatusModal from '@/components/ui/StatusModal';
 import { userDisplayName } from '@/utils/userDisplay';
+import { clearSession } from '@/utils/session';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SIDEBAR_WIDTH = Math.min(Math.round(SCREEN_WIDTH * 0.82), 300);
@@ -78,20 +79,14 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     try {
       const token = await AsyncStorage.getItem('token');
       const refreshToken = await AsyncStorage.getItem('refreshToken');
-      if (token && refreshToken) {
+      if (token) {
         try {
-          await authApi.logout(token, refreshToken);
+          await authApi.logout(token, refreshToken || '');
         } catch (e) {
           console.error('Backend logout failed:', e);
         }
       }
-      await AsyncStorage.multiRemove([
-        'token',
-        'refreshToken',
-        'user',
-        'skipFarm',
-        'preferredFarmId',
-      ]);
+      await clearSession();
       disconnectCommunitySocket();
       onClose();
       router.replace('/signin');

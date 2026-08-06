@@ -229,12 +229,15 @@ export default function Dashboard() {
                         hasFarm = farmList.length > 0;
                         if (hasFarm) {
                             user.farmsCount = farmList.length;
+                            user.hasFarm = true;
                             await AsyncStorage.setItem('user', JSON.stringify(user));
                         }
                     } catch (error) {
                         console.error('Error checking farms:', error);
                     }
                 }
+
+                // Incomplete farmer onboarding (identity / first farm) → RegisterFarm
                 if (!hasFarm && skipFarm !== 'true') {
                     router.replace('/RegisterFarm');
                     return;

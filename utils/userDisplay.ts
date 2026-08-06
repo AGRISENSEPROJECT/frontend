@@ -19,6 +19,7 @@ export function userDisplayName(user?: DisplayableUser | null): string {
 }
 
 export function isFarmerRole(role?: string | null): boolean {
-  if (!role) return true; // older sessions without role — allow through
+  // Backend always returns role on login/profile. Non-farmers must not use this app.
+  if (!role) return false;
   return String(role).toUpperCase() === 'FARMER';
 }
