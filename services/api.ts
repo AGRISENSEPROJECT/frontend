@@ -592,7 +592,22 @@ export type PredictionInput = {
 export const predictionsApi = {
     run: async (input: PredictionInput): Promise<any> => {
         const formData = new FormData();
-        formData.append('image', input.image as any);
+        const filename = input.image.name || `soil-${Date.now()}.jpg`;
+        const type = input.image.type || 'image/jpeg';
+
+        // Web needs a real Blob/File; native uses { uri, name, type }.
+        if (typeof document !== 'undefined') {
+            const response = await fetch(input.image.uri);
+            const blob = await response.blob();
+            formData.append('image', blob, filename);
+        } else {
+            formData.append('image', {
+                uri: input.image.uri,
+                name: filename,
+                type,
+            } as any);
+        }
+
         formData.append('farmId', input.farmId);
         formData.append('temperature', input.temperature);
         formData.append('humidity', input.humidity);

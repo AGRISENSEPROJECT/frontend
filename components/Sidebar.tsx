@@ -164,12 +164,17 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                     color={active ? '#fff' : '#0B4D26'}
                   />
                 </View>
-                <Text style={[styles.menuText, active && styles.menuTextActive]}>
+                <Text
+                  style={[styles.menuText, active && styles.menuTextActive]}
+                  numberOfLines={1}
+                >
                   {item.label}
                 </Text>
                 {active ? (
                   <Ionicons name="chevron-forward" size={16} color="#0B4D26" />
-                ) : null}
+                ) : (
+                  <View style={{ width: 16 }} />
+                )}
               </Pressable>
             );
           })}
@@ -275,6 +280,7 @@ const styles = StyleSheet.create({
   },
   menuList: {
     paddingHorizontal: 12,
+    width: '100%',
   },
   spacer: {
     flex: 1,
@@ -282,11 +288,12 @@ const styles = StyleSheet.create({
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'stretch',
+    width: '100%',
     paddingVertical: 11,
     paddingHorizontal: 10,
     borderRadius: 14,
     marginBottom: 6,
-    gap: 12,
     backgroundColor: '#F3F4F6',
   },
   menuItemActive: {
@@ -304,15 +311,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 12,
   },
   iconWrapActive: {
     backgroundColor: '#0B4D26',
   },
   menuText: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
     color: '#1F2937',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
+    includeFontPadding: false,
   },
   menuTextActive: {
     color: '#0B4D26',
@@ -320,13 +330,13 @@ const styles = StyleSheet.create({
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'stretch',
     marginHorizontal: 12,
     marginTop: 8,
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 14,
     backgroundColor: '#FEF2F2',
-    gap: 10,
   },
   logoutIcon: {
     width: 34,
@@ -335,10 +345,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 12,
   },
   logoutText: {
     color: '#DC2626',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '800',
   },
   overlayClose: {

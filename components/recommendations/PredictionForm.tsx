@@ -8,6 +8,7 @@ import {
     StyleSheet,
     Image,
     ActivityIndicator,
+    Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -155,6 +156,11 @@ export default function PredictionForm({ onSuccess, firstTime }: Props) {
     };
 
     const takePhoto = async () => {
+        if (Platform.OS === 'web') {
+            // Camera is unreliable on web — fall through to file picker.
+            await pickFromGallery();
+            return;
+        }
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
         if (status !== 'granted') {
             setStatusModal({ visible: true, type: 'error', title: 'Permission Denied', message: 'Camera access is needed to take a soil photo.' });
@@ -167,12 +173,34 @@ export default function PredictionForm({ onSuccess, firstTime }: Props) {
     };
 
     const pickFromGallery = async () => {
-        const pickerResult = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ['images'],
-            quality: 0.7,
-        });
-        if (!pickerResult.canceled && pickerResult.assets?.[0]) {
-            setImage(buildImageFile(pickerResult.assets[0]));
+        try {
+            if (Platform.OS !== 'web') {
+                const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                if (status !== 'granted') {
+                    setStatusModal({
+                        visible: true,
+                        type: 'error',
+                        title: 'Permission Denied',
+                        message: 'Photo library access is needed to choose a soil photo.',
+                    });
+                    return;
+                }
+            }
+            const pickerResult = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ['images'],
+                allowsEditing: Platform.OS !== 'web',
+                quality: 0.7,
+            });
+            if (!pickerResult.canceled && pickerResult.assets?.[0]) {
+                setImage(buildImageFile(pickerResult.assets[0]));
+            }
+        } catch (error: any) {
+            setStatusModal({
+                visible: true,
+                type: 'error',
+                title: 'Picker failed',
+                message: error?.message || 'Could not open the image picker.',
+            });
         }
     };
 
@@ -286,15 +314,21 @@ export default function PredictionForm({ onSuccess, firstTime }: Props) {
                     </View>
                 ) : (
                     <View style={styles.photoButtons}>
-                        <TouchableOpacity style={styles.photoBtn} onPress={takePhoto}>
-                            <Ionicons name="camera-outline" size={28} color="#0B4D26" />
-                            <Text style={styles.photoBtnText}>Take Photo</Text>
-                            <Text style={styles.photoBtnSub}>Open camera</Text>
-                        </TouchableOpacity>
+                        {Platform.OS !== 'web' && (
+                            <TouchableOpacity style={styles.photoBtn} onPress={takePhoto}>
+                                <Ionicons name="camera-outline" size={28} color="#0B4D26" />
+                                <Text style={styles.photoBtnText}>Take Photo</Text>
+                                <Text style={styles.photoBtnSub}>Open camera</Text>
+                            </TouchableOpacity>
+                        )}
                         <TouchableOpacity style={styles.photoBtn} onPress={pickFromGallery}>
                             <Ionicons name="images-outline" size={28} color="#0B4D26" />
-                            <Text style={styles.photoBtnText}>From Gallery</Text>
-                            <Text style={styles.photoBtnSub}>Choose image</Text>
+                            <Text style={styles.photoBtnText}>
+                                {Platform.OS === 'web' ? 'Upload Photo' : 'From Gallery'}
+                            </Text>
+                            <Text style={styles.photoBtnSub}>
+                                {Platform.OS === 'web' ? 'Choose an image file' : 'Choose image'}
+                            </Text>
                         </TouchableOpacity>
                     </View>
                 )}

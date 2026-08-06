@@ -8,6 +8,7 @@ import {
   Image,
   ActivityIndicator,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   StyleSheet,
 } from 'react-native';
@@ -38,6 +39,7 @@ export default function CommunityChat() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [me, setMe] = useState<any>(null);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
   const insets = useSafeAreaInsets();
   const listRef = useRef<FlatList>(null);
 
@@ -69,6 +71,22 @@ export default function CommunityChat() {
     })();
     loadMessages();
   }, [loadMessages]);
+
+  // Samsung / Android: keep composer above the keyboard (Expo Go often won't resize alone).
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const onShow = Keyboard.addListener('keyboardDidShow', (e) => {
+      setKeyboardOffset(e.endCoordinates?.height || 0);
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
+    });
+    const onHide = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardOffset(0);
+    });
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -157,12 +175,23 @@ export default function CommunityChat() {
     );
   }
 
+  const composerBottomPad =
+    keyboardOffset > 0 ? 8 : Math.max(insets.bottom, 10);
+
   return (
     <KeyboardAvoidingView
       style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
     >
+      <View
+        style={[
+          styles.chatBody,
+          Platform.OS === 'android' && keyboardOffset > 0
+            ? { paddingBottom: keyboardOffset }
+            : null,
+        ]}
+      >
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerIcon} hitSlop={8}>
           <Ionicons name="arrow-back" size={22} color={colors.textOnBrand} />
@@ -206,6 +235,8 @@ export default function CommunityChat() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           style={styles.list}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
           ListEmptyComponent={
             <View style={styles.emptyChat}>
@@ -261,12 +292,7 @@ export default function CommunityChat() {
         />
       )}
 
-      <View
-        style={[
-          styles.composer,
-          { paddingBottom: Math.max(insets.bottom, 10) },
-        ]}
-      >
+      <View style={[styles.composer, { paddingBottom: composerBottomPad }]}>
         <View style={styles.composerInner}>
           <TextInput
             style={styles.input}
@@ -277,6 +303,7 @@ export default function CommunityChat() {
             editable={!sending}
             multiline
             maxLength={2000}
+            textAlignVertical="center"
           />
           <TouchableOpacity
             style={[styles.sendBtn, (!input.trim() || sending) && styles.sendBtnDisabled]}
@@ -292,6 +319,7 @@ export default function CommunityChat() {
           </TouchableOpacity>
         </View>
       </View>
+      </View>
     </KeyboardAvoidingView>
   );
 }
@@ -300,6 +328,9 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: '#EFEAE2',
+  },
+  chatBody: {
+    flex: 1,
   },
   header: {
     backgroundColor: colors.brand,
