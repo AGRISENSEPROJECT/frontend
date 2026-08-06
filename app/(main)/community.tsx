@@ -15,13 +15,23 @@ import {
   Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSidebar } from '../../context/SidebarContext';
 import { authApi } from '@/services/api';
 import { getCommunitySocket } from '@/services/communitySocket';
 import StatusModal from '@/components/ui/StatusModal';
+import ConversationRow from '@/components/community/ConversationRow';
+import { colors, radius, shadow, space } from '@/constants/theme';
+import { usePresence } from '@/context/PresenceContext';
+
+const TAB_LABELS: Record<'Feed' | 'Inbox' | 'Group', string> = {
+  Feed: 'Feed',
+  Inbox: 'Messages',
+  Group: 'Groups',
+};
 
 const FEED_CARD_WIDTH = Dimensions.get('window').width - 32;
 
@@ -49,6 +59,7 @@ type Author = {
   id: string;
   username: string;
   profileImage?: string | null;
+  online?: boolean;
 };
 
 type Post = {
@@ -77,12 +88,17 @@ type Conversation = {
 
 export default function Community() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { toggleSidebar } = useSidebar();
+  const { isOnline } = usePresence();
   const params = useLocalSearchParams<{ tab?: string; postId?: string }>();
 
   const [communityTab, setCommunityTab] = useState<'Feed' | 'Inbox' | 'Group'>('Feed');
   const [posts, setPosts] = useState<Post[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [inboxUnread, setInboxUnread] = useState(0);
+  const [groupUnread, setGroupUnread] = useState(0);
+  const [conversationsRefreshing, setConversationsRefreshing] = useState(false);
   const [userData, setUserData] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -161,10 +177,31 @@ export default function Community() {
   const fetchConversations = useCallback(async (type?: 'direct' | 'group') => {
     try {
       const data = await authApi.listConversations(type);
-      setConversations(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      // Unread conversations float to the top — WhatsApp-style
+      list.sort((a, b) => (b.unreadCount || 0) - (a.unreadCount || 0));
+      setConversations(list);
     } catch (error) {
       console.error('Error fetching conversations:', error);
       setConversations([]);
+    }
+  }, []);
+
+  const refreshUnreadBadges = useCallback(async () => {
+    try {
+      const [direct, group] = await Promise.all([
+        authApi.listConversations('direct'),
+        authApi.listConversations('group'),
+      ]);
+      const sum = (items: any[]) =>
+        (Array.isArray(items) ? items : []).reduce(
+          (acc, c) => acc + (Number(c.unreadCount) || 0),
+          0,
+        );
+      setInboxUnread(sum(direct));
+      setGroupUnread(sum(group));
+    } catch {
+      // ignore badge refresh failures
     }
   }, []);
 
@@ -207,13 +244,46 @@ export default function Community() {
         if (userJson) setUserData(JSON.parse(userJson));
       } catch {}
       fetchPosts();
+      refreshUnreadBadges();
     })();
-  }, [fetchPosts]);
+  }, [fetchPosts, refreshUnreadBadges]);
 
   useEffect(() => {
     if (communityTab === 'Inbox') fetchConversations('direct');
     if (communityTab === 'Group') fetchConversations('group');
   }, [communityTab, fetchConversations]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshUnreadBadges();
+      if (communityTab === 'Inbox') fetchConversations('direct');
+      if (communityTab === 'Group') fetchConversations('group');
+    }, [communityTab, fetchConversations, refreshUnreadBadges]),
+  );
+
+  const refreshConversations = useCallback(async () => {
+    setConversationsRefreshing(true);
+    try {
+      await fetchConversations(communityTab === 'Inbox' ? 'direct' : 'group');
+      await refreshUnreadBadges();
+    } finally {
+      setConversationsRefreshing(false);
+    }
+  }, [communityTab, fetchConversations, refreshUnreadBadges]);
+
+  const onHeaderPrimaryAction = () => {
+    if (communityTab === 'Feed') {
+      openCreatePost();
+      return;
+    }
+    if (communityTab === 'Group') {
+      setNewGroupVisible(true);
+      searchUsers('');
+      return;
+    }
+    setNewChatVisible(true);
+    searchUsers('');
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -289,6 +359,7 @@ export default function Community() {
         onConversationUpdated = () => {
           if (communityTab === 'Inbox') fetchConversations('direct');
           if (communityTab === 'Group') fetchConversations('group');
+          refreshUnreadBadges();
         };
 
         sock.on('post:created', onCreated);
@@ -316,7 +387,7 @@ export default function Community() {
         })
         .catch(() => undefined);
     };
-  }, [communityTab, fetchConversations, userData?.id]);
+  }, [communityTab, fetchConversations, refreshUnreadBadges, userData?.id]);
 
   const handleLikePost = async (postId: string) => {
     try {
@@ -650,46 +721,79 @@ export default function Community() {
   const avatar = (uri?: string | null) =>
     uri ? { uri } : require('../../assets/profile-pic.png');
 
+  const headerActionIcon =
+    communityTab === 'Feed'
+      ? 'camera-outline'
+      : communityTab === 'Group'
+        ? 'people-outline'
+        : 'create-outline';
+  const headerActionLabel =
+    communityTab === 'Feed'
+      ? 'New post'
+      : communityTab === 'Group'
+        ? 'New group'
+        : 'New message';
+
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 8) }]}>
         <View style={styles.headerTop}>
-          <TouchableOpacity onPress={toggleSidebar}>
-            <Ionicons name="menu" size={24} color="#fff" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Farming Community</Text>
           <TouchableOpacity
-            onPress={() => {
-              if (communityTab === 'Group') {
-                setNewGroupVisible(true);
-                searchUsers('');
-              } else {
-                setNewChatVisible(true);
-                searchUsers('');
-              }
-            }}
+            onPress={toggleSidebar}
+            style={styles.headerIconBtn}
+            accessibilityLabel="Open menu"
+            hitSlop={10}
           >
-            <Ionicons name="create-outline" size={24} color="#fff" />
+            <Ionicons name="menu" size={24} color={colors.textOnBrand} />
+          </TouchableOpacity>
+          <View style={styles.headerTitleWrap}>
+            <Text style={styles.headerEyebrow}>Agrisense</Text>
+            <Text style={styles.headerTitle}>Community</Text>
+          </View>
+          <TouchableOpacity
+            onPress={onHeaderPrimaryAction}
+            style={styles.headerIconBtn}
+            accessibilityLabel={headerActionLabel}
+            hitSlop={10}
+          >
+            <Ionicons name={headerActionIcon as any} size={22} color={colors.textOnBrand} />
           </TouchableOpacity>
         </View>
 
         <View style={styles.communityTabs}>
-          {(['Feed', 'Inbox', 'Group'] as const).map((tab) => (
-            <TouchableOpacity
-              key={tab}
-              style={[styles.communityTab, communityTab === tab && styles.communityTabActive]}
-              onPress={() => setCommunityTab(tab)}
-            >
-              <Text
-                style={[
-                  styles.communityTabText,
-                  communityTab === tab && styles.communityTabTextActive,
-                ]}
+          {(['Feed', 'Inbox', 'Group'] as const).map((tab) => {
+            const active = communityTab === tab;
+            const badge =
+              tab === 'Inbox' ? inboxUnread : tab === 'Group' ? groupUnread : 0;
+            return (
+              <TouchableOpacity
+                key={tab}
+                style={[styles.communityTab, active && styles.communityTabActive]}
+                onPress={() => setCommunityTab(tab)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={
+                  badge > 0 ? `${TAB_LABELS[tab]}, ${badge} unread` : TAB_LABELS[tab]
+                }
               >
-                {tab}
-              </Text>
-            </TouchableOpacity>
-          ))}
+                <Text
+                  style={[
+                    styles.communityTabText,
+                    active && styles.communityTabTextActive,
+                  ]}
+                >
+                  {TAB_LABELS[tab]}
+                </Text>
+                {badge > 0 ? (
+                  <View style={[styles.tabBadge, active && styles.tabBadgeActive]}>
+                    <Text style={[styles.tabBadgeText, active && styles.tabBadgeTextActive]}>
+                      {badge > 99 ? '99+' : badge}
+                    </Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
 
@@ -697,13 +801,16 @@ export default function Community() {
         <TouchableOpacity
           style={styles.addPostCard}
           onPress={openCreatePost}
-          activeOpacity={0.9}
+          activeOpacity={0.88}
+          accessibilityLabel="Create a new post"
         >
           <Image source={avatar(userData?.profileImage)} style={styles.composerAvatar} />
           <View style={styles.composerPill}>
-            <Text style={styles.composerPlaceholder}>Share a photo update...</Text>
+            <Text style={styles.composerPlaceholder}>Share a photo from the farm…</Text>
           </View>
-          <Ionicons name="camera-outline" size={22} color="#166534" />
+          <View style={styles.composerCamera}>
+            <Ionicons name="camera" size={18} color={colors.brandMid} />
+          </View>
         </TouchableOpacity>
       )}
 
@@ -711,22 +818,29 @@ export default function Community() {
         <ScrollView
           ref={feedScrollRef}
           style={styles.postsList}
+          contentContainerStyle={{ paddingBottom: 28 }}
           refreshControl={
             <RefreshControl
               refreshing={refreshing && posts.length > 0}
               onRefresh={fetchPosts}
-              colors={['#166534']}
+              colors={[colors.brandMid]}
+              tintColor={colors.brandMid}
             />
           }
         >
           {refreshing && posts.length === 0 ? (
             <View style={styles.emptyState}>
-              <ActivityIndicator size="large" color="#166534" />
+              <ActivityIndicator size="large" color={colors.brandMid} />
             </View>
           ) : posts.length === 0 ? (
             <View style={styles.emptyState}>
-              <Ionicons name="images-outline" size={60} color="#ccc" />
-              <Text style={styles.emptyStateText}>No posts yet. Share the first photo update!</Text>
+              <View style={styles.emptyIconWrap}>
+                <Ionicons name="images-outline" size={36} color={colors.brandMid} />
+              </View>
+              <Text style={styles.emptyStateTitle}>Nothing here yet</Text>
+              <Text style={styles.emptyStateText}>
+                Share the first photo update from your farm.
+              </Text>
             </View>
           ) : (
             posts.map((post) => {
@@ -754,7 +868,7 @@ export default function Community() {
                         source={avatar(post.author?.profileImage)}
                         style={styles.profilePic}
                       />
-                      <View>
+                      <View style={styles.authorMeta}>
                         <Text style={styles.authorName}>
                           {post.author?.username || 'Farmer'}
                         </Text>
@@ -766,8 +880,9 @@ export default function Community() {
                         hitSlop={14}
                         onPress={() => setManagePost(post)}
                         accessibilityLabel="Manage post"
+                        style={styles.moreBtn}
                       >
-                        <Ionicons name="ellipsis-horizontal" size={22} color="#374151" />
+                        <Ionicons name="ellipsis-horizontal" size={20} color={colors.textSecondary} />
                       </TouchableOpacity>
                     ) : null}
                   </View>
@@ -792,11 +907,12 @@ export default function Community() {
                     <TouchableOpacity
                       style={styles.actionButton}
                       onPress={() => handleLikePost(post.id)}
+                      accessibilityLabel={liked ? 'Unlike post' : 'Like post'}
                     >
                       <Ionicons
                         name={liked ? 'heart' : 'heart-outline'}
-                        size={22}
-                        color={liked ? '#DC2626' : '#374151'}
+                        size={24}
+                        color={liked ? colors.danger : colors.text}
                       />
                       <Text style={[styles.actionText, liked && styles.actionTextLiked]}>
                         {post.likeCount ?? post.likes.length}
@@ -805,8 +921,9 @@ export default function Community() {
                     <TouchableOpacity
                       style={styles.actionButton}
                       onPress={() => openPostDetail(post)}
+                      accessibilityLabel="View comments"
                     >
-                      <Ionicons name="chatbubble-outline" size={20} color="#374151" />
+                      <Ionicons name="chatbubble-outline" size={22} color={colors.text} />
                       <Text style={styles.actionText}>
                         {post.commentCount ?? post.comments.length}
                       </Text>
@@ -815,22 +932,28 @@ export default function Community() {
                       <TouchableOpacity
                         style={styles.actionButton}
                         onPress={() => setManagePost(post)}
+                        accessibilityLabel="Edit post"
                       >
-                        <Ionicons name="create-outline" size={20} color="#166534" />
-                        <Text style={[styles.actionText, { color: '#166534' }]}>Edit</Text>
+                        <Ionicons name="create-outline" size={22} color={colors.brandMid} />
+                        <Text style={[styles.actionText, { color: colors.brandMid }]}>Edit</Text>
                       </TouchableOpacity>
                     ) : post.author?.id ? (
                       <TouchableOpacity
                         style={styles.actionButton}
                         onPress={() => openDirectChat(post.author!.id)}
+                        accessibilityLabel="Message author"
                       >
-                        <Ionicons name="paper-plane-outline" size={20} color="#374151" />
+                        <Ionicons name="paper-plane-outline" size={22} color={colors.text} />
                         <Text style={styles.actionText}>Message</Text>
                       </TouchableOpacity>
                     ) : null}
                   </View>
 
-                  <TouchableOpacity activeOpacity={0.9} onPress={() => openPostDetail(post)}>
+                  <TouchableOpacity
+                    activeOpacity={0.9}
+                    onPress={() => openPostDetail(post)}
+                    style={styles.captionBlock}
+                  >
                     {!!post.title && (
                       <Text style={styles.postTitle} numberOfLines={2}>
                         {post.title}
@@ -856,68 +979,87 @@ export default function Community() {
       {(communityTab === 'Inbox' || communityTab === 'Group') && (
         <ScrollView
           style={styles.postsList}
+          contentContainerStyle={
+            conversations.length === 0 ? styles.conversationListEmpty : undefined
+          }
           refreshControl={
             <RefreshControl
-              refreshing={false}
-              onRefresh={() =>
-                fetchConversations(communityTab === 'Inbox' ? 'direct' : 'group')
-              }
-              colors={['#166534']}
+              refreshing={conversationsRefreshing}
+              onRefresh={refreshConversations}
+              colors={[colors.brandMid]}
+              tintColor={colors.brandMid}
             />
           }
         >
-          <View style={styles.messageList}>
-            {conversations.length === 0 ? (
-              <View style={styles.emptyState}>
+          {conversations.length === 0 ? (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIconWrap}>
                 <Ionicons
                   name={communityTab === 'Inbox' ? 'chatbubbles-outline' : 'people-outline'}
-                  size={52}
-                  color="#ccc"
+                  size={36}
+                  color={colors.brandMid}
                 />
-                <Text style={styles.emptyStateText}>
-                  {communityTab === 'Inbox'
-                    ? 'No direct chats yet. Tap ✎ to message a farmer.'
-                    : 'No groups yet. Tap ✎ to create one.'}
-                </Text>
               </View>
-            ) : (
-              conversations.map((item) => (
-                <TouchableOpacity
+              <Text style={styles.emptyStateTitle}>
+                {communityTab === 'Inbox' ? 'No messages yet' : 'No groups yet'}
+              </Text>
+              <Text style={styles.emptyStateText}>
+                {communityTab === 'Inbox'
+                  ? 'Start a chat with another farmer from the + button above.'
+                  : 'Create a group to coordinate with your community.'}
+              </Text>
+              <TouchableOpacity
+                style={styles.emptyCta}
+                onPress={onHeaderPrimaryAction}
+                activeOpacity={0.88}
+              >
+                <Ionicons
+                  name={communityTab === 'Inbox' ? 'create-outline' : 'people-outline'}
+                  size={18}
+                  color="#fff"
+                />
+                <Text style={styles.emptyCtaText}>
+                  {communityTab === 'Inbox' ? 'New message' : 'New group'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.messageList}>
+              {conversations.map((item) => (
+                <ConversationRow
                   key={item.id}
-                  style={styles.messageItem}
-                  onPress={() =>
+                  item={item}
+                  mode={communityTab as 'Inbox' | 'Group'}
+                  timeAgo={timeAgo}
+                  avatar={avatar}
+                  online={
+                    communityTab === 'Inbox'
+                      ? isOnline(item.otherMembers?.[0]?.id)
+                      : false
+                  }
+                  onPress={() => {
+                    const unread = Number(item.unreadCount) || 0;
+                    if (unread > 0) {
+                      setConversations((prev) =>
+                        prev.map((c) =>
+                          c.id === item.id ? { ...c, unreadCount: 0 } : c,
+                        ),
+                      );
+                      if (communityTab === 'Inbox') {
+                        setInboxUnread((n) => Math.max(0, n - unread));
+                      } else {
+                        setGroupUnread((n) => Math.max(0, n - unread));
+                      }
+                    }
                     router.push({
                       pathname: '/CommunityChat',
                       params: { id: item.id, name: item.name },
-                    })
-                  }
-                >
-                  <Image
-                    source={avatar(
-                      communityTab === 'Inbox'
-                        ? item.otherMembers?.[0]?.profileImage
-                        : null,
-                    )}
-                    style={styles.messageAvatar}
-                  />
-                  <View style={styles.messageContent}>
-                    <Text style={styles.messageName}>{item.name}</Text>
-                    <Text style={styles.messagePreview} numberOfLines={1}>
-                      {item.lastMessage?.content || 'Say hello to get started'}
-                    </Text>
-                    {item.lastMessage?.createdAt && (
-                      <Text style={styles.messageTime}>{timeAgo(item.lastMessage.createdAt)}</Text>
-                    )}
-                  </View>
-                  {(item.unreadCount || 0) > 0 && (
-                    <View style={styles.unreadBadge}>
-                      <Text style={styles.unreadBadgeText}>{item.unreadCount}</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              ))
-            )}
-          </View>
+                    });
+                  }}
+                />
+              ))}
+            </View>
+          )}
         </ScrollView>
       )}
 
@@ -1122,8 +1264,18 @@ export default function Community() {
                     style={styles.userRow}
                     onPress={() => openDirectChat(u.id)}
                   >
-                    <Image source={avatar(u.profileImage)} style={styles.profilePic} />
-                    <Text style={styles.authorName}>{u.username}</Text>
+                    <View style={styles.userAvatarWrap}>
+                      <Image source={avatar(u.profileImage)} style={styles.profilePic} />
+                      {isOnline(u.id) || (u as any).online ? (
+                        <View style={styles.userOnlineDot} />
+                      ) : null}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.authorName}>{u.username}</Text>
+                      <Text style={styles.userPresenceText}>
+                        {isOnline(u.id) || (u as any).online ? 'Active now' : 'Offline'}
+                      </Text>
+                    </View>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -1243,108 +1395,174 @@ export default function Community() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAF9F6' },
+  container: { flex: 1, backgroundColor: colors.bg },
   header: {
-    backgroundColor: '#0B4D26',
+    backgroundColor: colors.brand,
     paddingBottom: 14,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
   },
   headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: space.lg,
+    paddingVertical: 10,
   },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#fff' },
+  headerIconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  headerTitleWrap: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  headerEyebrow: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.7)',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: colors.textOnBrand },
   communityTabs: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingHorizontal: space.lg,
+    paddingTop: 6,
     gap: 8,
   },
   communityTab: {
     flex: 1,
-    paddingVertical: 8,
+    flexDirection: 'row',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
     alignItems: 'center',
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center',
+    gap: 6,
+    borderRadius: radius.full,
+    backgroundColor: 'rgba(255,255,255,0.12)',
   },
   communityTabActive: { backgroundColor: '#fff' },
   communityTabText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.85)',
+    fontSize: 13,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.88)',
   },
-  communityTabTextActive: { color: '#0B4D26' },
+  communityTabTextActive: { color: colors.brand },
+  tabBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
+    backgroundColor: colors.unread,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabBadgeActive: {
+    backgroundColor: colors.brand,
+  },
+  tabBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  tabBadgeTextActive: {
+    color: '#fff',
+  },
   addPostCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    backgroundColor: 'white',
-    marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 4,
+    gap: 12,
+    backgroundColor: colors.surface,
+    marginHorizontal: space.lg,
+    marginTop: 14,
+    marginBottom: 6,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    ...shadow.card,
   },
-  composerAvatar: { width: 36, height: 36, borderRadius: 18 },
+  composerAvatar: { width: 40, height: 40, borderRadius: 20 },
   composerPill: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 20,
-    paddingVertical: 9,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radius.full,
+    paddingVertical: 11,
     paddingHorizontal: 14,
   },
-  composerPlaceholder: { color: '#6B7280', fontSize: 13 },
+  composerPlaceholder: { color: colors.textMuted, fontSize: 14, fontWeight: '500' },
+  composerCamera: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.brandSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   postsList: { flex: 1 },
+  conversationListEmpty: { flexGrow: 1 },
   postCard: {
-    backgroundColor: 'white',
-    marginHorizontal: 16,
-    marginTop: 10,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    backgroundColor: colors.surface,
+    marginHorizontal: space.lg,
+    marginTop: 12,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
     overflow: 'hidden',
+    ...shadow.card,
   },
   postCardHighlight: {
-    borderColor: '#86EFAC',
-    backgroundColor: '#F0FDF4',
+    borderColor: colors.brandMuted,
+    backgroundColor: colors.brandWash,
   },
   postHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
-  authorInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  profilePic: { width: 36, height: 36, borderRadius: 18 },
-  authorName: { fontWeight: '600', fontSize: 14 },
-  timeAgo: { color: '#666', fontSize: 12 },
+  authorInfo: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  authorMeta: { gap: 2 },
+  profilePic: { width: 40, height: 40, borderRadius: 20 },
+  authorName: { fontWeight: '700', fontSize: 15, color: colors.text },
+  timeAgo: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
+  moreBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   postContent: {
-    paddingHorizontal: 12,
-    paddingBottom: 4,
     fontSize: 14,
-    lineHeight: 20,
-    color: '#1F2937',
+    lineHeight: 21,
+    color: colors.text,
+  },
+  captionBlock: {
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+    paddingTop: 2,
   },
   captionAuthor: {
     fontWeight: '800',
-    color: '#111827',
+    color: colors.text,
   },
   postCoverWrap: {
     width: '100%',
-    backgroundColor: '#E5E7EB',
+    backgroundColor: colors.border,
     position: 'relative',
   },
   postCover: {
     width: '100%',
     height: FEED_CARD_WIDTH * 1.15,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: colors.border,
   },
   placeholderBadge: {
     position: 'absolute',
@@ -1370,19 +1588,19 @@ const styles = StyleSheet.create({
     marginTop: 12,
     marginBottom: 8,
     borderRadius: 12,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: colors.border,
   },
   pickImageBtn: {
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
     borderWidth: 1.5,
-    borderColor: '#166534',
+    borderColor: colors.brandMid,
     borderStyle: 'dashed',
     borderRadius: 16,
     paddingVertical: 28,
     marginBottom: 16,
-    backgroundColor: '#F0FDF4',
+    backgroundColor: colors.brandWash,
   },
   pickImageIconCircle: {
     width: 56,
@@ -1394,12 +1612,12 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   pickImageText: {
-    color: '#166534',
+    color: colors.brandMid,
     fontWeight: '800',
     fontSize: 15,
   },
   pickImageHint: {
-    color: '#6B7280',
+    color: colors.textMuted,
     fontSize: 12,
     fontWeight: '600',
   },
@@ -1411,7 +1629,7 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 240,
     borderRadius: 12,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: colors.border,
   },
   removeImageBtn: {
     position: 'absolute',
@@ -1426,16 +1644,16 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 8,
-    backgroundColor: '#F0FDF4',
+    backgroundColor: colors.brandWash,
   },
   changeImageText: {
-    color: '#166534',
+    color: colors.brandMid,
     fontWeight: '600',
     fontSize: 13,
   },
   manageOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: colors.overlay,
     justifyContent: 'flex-end',
   },
   manageSheet: {
@@ -1449,7 +1667,7 @@ const styles = StyleSheet.create({
   manageTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#111827',
+    color: colors.text,
     marginBottom: 8,
   },
   manageAction: {
@@ -1463,7 +1681,7 @@ const styles = StyleSheet.create({
   manageActionText: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#166534',
+    color: colors.brandMid,
   },
   manageCancel: {
     borderBottomWidth: 0,
@@ -1473,14 +1691,13 @@ const styles = StyleSheet.create({
   manageCancelText: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#6B7280',
+    color: colors.textMuted,
     textAlign: 'center',
     width: '100%',
   },
   readMore: {
-    paddingHorizontal: 12,
-    paddingBottom: 12,
-    color: '#166534',
+    marginTop: 4,
+    color: colors.brandMid,
     fontWeight: '700',
     fontSize: 13,
   },
@@ -1494,13 +1711,13 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 15,
     lineHeight: 22,
-    color: '#1F2937',
+    color: colors.text,
     fontWeight: '500',
   },
   commentsSectionLabel: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#111827',
+    color: colors.text,
     marginBottom: 10,
   },
   engagementStats: {
@@ -1514,42 +1731,64 @@ const styles = StyleSheet.create({
   statText: { color: '#666', fontSize: 13 },
   actionButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  actionButton: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  actionText: { color: '#374151', fontSize: 13, fontWeight: '700' },
-  actionTextActive: { color: '#166534', fontWeight: '700' },
-  actionTextLiked: { color: '#DC2626', fontWeight: '800' },
-  messageList: { padding: 16, gap: 10 },
-  messageItem: {
-    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'white',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    padding: 12,
+    gap: 18,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 8,
   },
-  messageAvatar: { width: 48, height: 48, borderRadius: 24, marginRight: 12 },
-  messageContent: { flex: 1 },
-  messageName: { fontWeight: '600', fontSize: 15, color: '#333', marginBottom: 2 },
-  messagePreview: { fontSize: 13, color: '#666', marginBottom: 2 },
-  messageTime: { fontSize: 12, color: '#999' },
-  unreadBadge: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: '#166534',
+  actionButton: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  actionText: { color: colors.textSecondary, fontSize: 13, fontWeight: '700' },
+  actionTextActive: { color: colors.brandMid, fontWeight: '700' },
+  actionTextLiked: { color: colors.danger, fontWeight: '800' },
+  messageList: {
+    backgroundColor: colors.surface,
+    marginTop: 8,
+    paddingBottom: 24,
+  },
+  emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
+    paddingTop: 72,
+    paddingHorizontal: 32,
   },
-  unreadBadgeText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  emptyState: { alignItems: 'center', justifyContent: 'center', paddingTop: 80, paddingHorizontal: 24 },
-  emptyStateText: { marginTop: 10, color: '#999', fontSize: 15, textAlign: 'center', lineHeight: 22 },
+  emptyIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: colors.brandSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  emptyStateTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: colors.text,
+    marginBottom: 6,
+  },
+  emptyStateText: {
+    color: colors.textMuted,
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 21,
+    fontWeight: '500',
+  },
+  emptyCta: {
+    marginTop: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.brandMid,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: radius.full,
+  },
+  emptyCtaText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 14,
+  },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: {
     backgroundColor: 'white',
@@ -1575,7 +1814,7 @@ const styles = StyleSheet.create({
     color: '#111',
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: colors.border,
     borderRadius: 12,
     padding: 12,
   },
@@ -1586,25 +1825,25 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: colors.border,
     borderRadius: 12,
     padding: 12,
   },
   postTitle: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#111827',
+    color: colors.text,
     marginBottom: 4,
   },
   postDetailTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#111827',
+    color: colors.text,
     marginTop: 12,
     marginBottom: 6,
   },
   postBtn: {
-    backgroundColor: '#166534',
+    backgroundColor: colors.brandMid,
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 12,
@@ -1637,7 +1876,7 @@ const styles = StyleSheet.create({
   emptyCommentsText: { color: '#999', fontSize: 14 },
   searchInputModal: {
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: colors.border,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -1652,4 +1891,26 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
   },
+  userAvatarWrap: {
+    position: 'relative',
+  },
+  userOnlineDot: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    backgroundColor: '#22C55E',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  userPresenceText: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  userAvatar: { width: 40, height: 40, borderRadius: 20 },
+  userName: { flex: 1, fontSize: 15, fontWeight: '600', color: colors.text },
 });

@@ -7,6 +7,7 @@ import { useEffect } from 'react';
 import '../global.css';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { NotificationProvider } from '@/context/NotificationContext';
+import { PresenceProvider } from '@/context/PresenceContext';
 
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
@@ -34,6 +35,7 @@ export default function RootLayout() {
     return (
         <ThemeProvider value={theme}>
             <NotificationProvider>
+                <PresenceProvider>
                 <Stack>
                     <Stack.Screen name="index" options={{ headerShown: false }} />
                     <Stack.Screen name="signup" options={{ headerShown: false }} />
@@ -57,6 +59,7 @@ export default function RootLayout() {
                     <Stack.Screen name="+not-found" />
                 </Stack>
                 <StatusBar style="auto" />
+                </PresenceProvider>
             </NotificationProvider>
         </ThemeProvider>
     );

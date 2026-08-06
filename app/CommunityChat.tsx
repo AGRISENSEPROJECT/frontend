@@ -3,12 +3,13 @@ import {
   View,
   Text,
   TouchableOpacity,
-  ScrollView,
+  FlatList,
   TextInput,
   Image,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  StyleSheet,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +17,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authApi } from '@/services/api';
 import { getCommunitySocket } from '@/services/communitySocket';
+import { colors, radius, space } from '@/constants/theme';
 
 type Author = { id: string; username: string; profileImage?: string | null };
 type ChatMessage = {
@@ -37,7 +39,7 @@ export default function CommunityChat() {
   const [sending, setSending] = useState(false);
   const [me, setMe] = useState<any>(null);
   const insets = useSafeAreaInsets();
-  const scrollRef = useRef<ScrollView>(null);
+  const listRef = useRef<FlatList>(null);
 
   const loadMessages = useCallback(async () => {
     if (!conversationId) {
@@ -56,7 +58,7 @@ export default function CommunityChat() {
       console.error('Failed to load messages', error);
     } finally {
       setLoading(false);
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 50);
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 80);
     }
   }, [conversationId]);
 
@@ -81,7 +83,7 @@ export default function CommunityChat() {
             if (prev.some((m) => m.id === message.id)) return prev;
             return [...prev, message];
           });
-          setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 40);
+          setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 40);
           authApi.markConversationRead(conversationId).catch(() => undefined);
         });
       } catch (error) {
@@ -105,7 +107,7 @@ export default function CommunityChat() {
     try {
       const message = await authApi.sendConversationMessage(conversationId, content);
       setMessages((prev) => (prev.some((m) => m.id === message.id) ? prev : [...prev, message]));
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 40);
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 40);
     } catch (error) {
       console.error('Send failed', error);
       setInput(content);
@@ -120,14 +122,36 @@ export default function CommunityChat() {
     return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   };
 
+  const formatDayDivider = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+    if (date.toDateString() === today.toDateString()) return 'Today';
+    if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  };
+
+  const shouldShowDayDivider = (index: number) => {
+    if (index === 0) return true;
+    const prev = new Date(messages[index - 1].createdAt).toDateString();
+    const curr = new Date(messages[index].createdAt).toDateString();
+    return prev !== curr;
+  };
+
   if (!conversationId) {
     return (
-      <View className="flex-1 bg-white items-center justify-center px-6">
-        <Text className="text-gray-600 text-center mb-4">
-          This chat is missing an ID. Open a conversation from Inbox or Group.
+      <View style={styles.missingWrap}>
+        <View style={styles.missingIcon}>
+          <Ionicons name="chatbubble-ellipses-outline" size={32} color={colors.brand} />
+        </View>
+        <Text style={styles.missingTitle}>Conversation unavailable</Text>
+        <Text style={styles.missingBody}>
+          Open a chat from Messages or Groups to continue.
         </Text>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text className="text-[#166534] font-semibold">Go back</Text>
+        <TouchableOpacity style={styles.missingBtn} onPress={() => router.back()}>
+          <Text style={styles.missingBtnText}>Go back</Text>
         </TouchableOpacity>
       </View>
     );
@@ -135,98 +159,376 @@ export default function CommunityChat() {
 
   return (
     <KeyboardAvoidingView
-      className="flex-1 bg-white"
+      style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
     >
-      <View className="bg-[#166534] pt-12 pb-3 px-4 flex-row items-center">
-        <TouchableOpacity onPress={() => router.back()} className="p-2 -ml-2">
-          <Ionicons name="arrow-back" size={24} color="#fff" />
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerIcon} hitSlop={8}>
+          <Ionicons name="arrow-back" size={22} color={colors.textOnBrand} />
         </TouchableOpacity>
-        <View className="flex-1 flex-row items-center justify-center gap-2">
-          <Image
-            source={require('../assets/profile-pic.png')}
-            className="w-9 h-9 rounded-full"
-          />
-          <Text className="text-white font-semibold text-base" numberOfLines={1}>
-            {contactName}
-          </Text>
-        </View>
+
         <TouchableOpacity
-          className="p-2"
+          style={styles.headerCenter}
+          activeOpacity={0.85}
           onPress={() =>
             router.push({ pathname: '/ContactProfile', params: { name: contactName } })
           }
         >
-          <Ionicons name="ellipsis-vertical" size={22} color="#fff" />
+          <Image source={require('../assets/profile-pic.png')} style={styles.headerAvatar} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.headerName} numberOfLines={1}>
+              {contactName}
+            </Text>
+            <Text style={styles.headerSub}>Tap for info</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.headerIcon}
+          onPress={() =>
+            router.push({ pathname: '/ContactProfile', params: { name: contactName } })
+          }
+          hitSlop={8}
+        >
+          <Ionicons name="ellipsis-vertical" size={20} color={colors.textOnBrand} />
         </TouchableOpacity>
       </View>
 
       {loading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#166534" />
+        <View style={styles.loading}>
+          <ActivityIndicator color={colors.brand} />
         </View>
       ) : (
-        <ScrollView
-          ref={scrollRef}
-          className="flex-1 px-4 py-3"
-          contentContainerStyle={{ paddingBottom: 16, flexGrow: 1, justifyContent: 'flex-end' }}
-        >
-          {messages.length === 0 ? (
-            <View className="items-center py-10">
-              <Text className="text-gray-500 text-sm">No messages yet. Say hi 👋</Text>
+        <FlatList
+          ref={listRef}
+          data={messages}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          style={styles.list}
+          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+          ListEmptyComponent={
+            <View style={styles.emptyChat}>
+              <View style={styles.emptyChatIcon}>
+                <Ionicons name="leaf-outline" size={28} color={colors.brand} />
+              </View>
+              <Text style={styles.emptyChatTitle}>Start the conversation</Text>
+              <Text style={styles.emptyChatBody}>
+                Say hello and share farm tips with {contactName}.
+              </Text>
             </View>
-          ) : (
-            messages.map((msg) => {
-              const mine = msg.sender?.id === me?.id;
-              return (
-                <View
-                  key={msg.id}
-                  className={`flex-row mb-3 ${mine ? 'justify-end' : 'justify-start'}`}
-                >
-                  <View
-                    className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${
-                      mine
-                        ? 'bg-[#166534]/15 rounded-tr-sm'
-                        : 'bg-gray-200 rounded-tl-sm'
-                    }`}
-                  >
+          }
+          renderItem={({ item, index }) => {
+            const mine = item.sender?.id === me?.id;
+            const showDivider = shouldShowDayDivider(index);
+            return (
+              <View>
+                {showDivider && (
+                  <View style={styles.dayPillWrap}>
+                    <View style={styles.dayPill}>
+                      <Text style={styles.dayPillText}>{formatDayDivider(item.createdAt)}</Text>
+                    </View>
+                  </View>
+                )}
+                <View style={[styles.row, mine ? styles.rowMine : styles.rowTheirs]}>
+                  {!mine && (
+                    <Image
+                      source={
+                        item.sender?.profileImage
+                          ? { uri: item.sender.profileImage }
+                          : require('../assets/profile-pic.png')
+                      }
+                      style={styles.bubbleAvatar}
+                    />
+                  )}
+                  <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
                     {!mine && (
-                      <Text className="text-[#166534] text-xs font-semibold mb-1">
-                        {msg.sender?.username || 'Farmer'}
+                      <Text style={styles.senderName}>
+                        {item.sender?.username || 'Farmer'}
                       </Text>
                     )}
-                    <Text className="text-gray-800 text-sm">{msg.content}</Text>
-                    <Text className="text-gray-500 text-xs mt-1">
-                      {formatTime(msg.createdAt)}
+                    <Text style={[styles.bubbleText, mine && styles.bubbleTextMine]}>
+                      {item.content}
+                    </Text>
+                    <Text style={[styles.bubbleTime, mine && styles.bubbleTimeMine]}>
+                      {formatTime(item.createdAt)}
                     </Text>
                   </View>
                 </View>
-              );
-            })
-          )}
-        </ScrollView>
+              </View>
+            );
+          }}
+        />
       )}
 
       <View
-        className="flex-row items-center px-4 py-2 border-t border-gray-200 bg-white"
-        style={{ paddingBottom: Math.max(insets.bottom, 12) + 8 }}
+        style={[
+          styles.composer,
+          { paddingBottom: Math.max(insets.bottom, 10) },
+        ]}
       >
-        <TextInput
-          className="flex-1 bg-gray-100 rounded-full py-2.5 px-4 text-base"
-          placeholder="Message..."
-          placeholderTextColor="#999"
-          value={input}
-          onChangeText={setInput}
-          editable={!sending}
-        />
-        <TouchableOpacity className="ml-2 p-2" onPress={send} disabled={sending || !input.trim()}>
-          {sending ? (
-            <ActivityIndicator color="#166534" />
-          ) : (
-            <Ionicons name="send" size={22} color={input.trim() ? '#166534' : '#ccc'} />
-          )}
-        </TouchableOpacity>
+        <View style={styles.composerInner}>
+          <TextInput
+            style={styles.input}
+            placeholder="Message..."
+            placeholderTextColor={colors.textMuted}
+            value={input}
+            onChangeText={setInput}
+            editable={!sending}
+            multiline
+            maxLength={2000}
+          />
+          <TouchableOpacity
+            style={[styles.sendBtn, (!input.trim() || sending) && styles.sendBtnDisabled]}
+            onPress={send}
+            disabled={sending || !input.trim()}
+            accessibilityLabel="Send message"
+          >
+            {sending ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Ionicons name="send" size={18} color="#fff" />
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
     </KeyboardAvoidingView>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: '#EFEAE2',
+  },
+  header: {
+    backgroundColor: colors.brand,
+    paddingHorizontal: space.md,
+    paddingBottom: space.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  headerIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerCenter: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 4,
+  },
+  headerAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.35)',
+  },
+  headerName: {
+    color: colors.textOnBrand,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  headerSub: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 1,
+  },
+  loading: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  list: {
+    flex: 1,
+  },
+  listContent: {
+    paddingHorizontal: space.md,
+    paddingTop: space.md,
+    paddingBottom: space.lg,
+    flexGrow: 1,
+    justifyContent: 'flex-end',
+  },
+  dayPillWrap: {
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  dayPill: {
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: radius.full,
+  },
+  dayPillText: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  row: {
+    flexDirection: 'row',
+    marginBottom: 6,
+    alignItems: 'flex-end',
+    maxWidth: '100%',
+  },
+  rowMine: {
+    justifyContent: 'flex-end',
+  },
+  rowTheirs: {
+    justifyContent: 'flex-start',
+    gap: 6,
+  },
+  bubbleAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    marginBottom: 2,
+  },
+  bubble: {
+    maxWidth: '78%',
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 6,
+  },
+  bubbleMine: {
+    backgroundColor: colors.brand,
+    borderBottomRightRadius: 5,
+  },
+  bubbleTheirs: {
+    backgroundColor: colors.surface,
+    borderBottomLeftRadius: 5,
+  },
+  senderName: {
+    color: colors.brandMid,
+    fontSize: 11,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  bubbleText: {
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '500',
+  },
+  bubbleTextMine: {
+    color: colors.textOnBrand,
+  },
+  bubbleTime: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: '600',
+    marginTop: 4,
+    alignSelf: 'flex-end',
+  },
+  bubbleTimeMine: {
+    color: 'rgba(255,255,255,0.72)',
+  },
+  emptyChat: {
+    alignItems: 'center',
+    paddingVertical: 48,
+    paddingHorizontal: 28,
+  },
+  emptyChatIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: colors.brandSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  emptyChatTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  emptyChatBody: {
+    marginTop: 6,
+    textAlign: 'center',
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '500',
+  },
+  composer: {
+    backgroundColor: colors.surface,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    paddingHorizontal: space.md,
+    paddingTop: space.sm,
+  },
+  composerInner: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  input: {
+    flex: 1,
+    minHeight: 42,
+    maxHeight: 120,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radius.full,
+    paddingHorizontal: 16,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
+    fontSize: 15,
+    color: colors.text,
+    fontWeight: '500',
+  },
+  sendBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sendBtnDisabled: {
+    backgroundColor: '#A7C4B0',
+  },
+  missingWrap: {
+    flex: 1,
+    backgroundColor: colors.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 28,
+  },
+  missingIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: colors.brandSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  missingTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  missingBody: {
+    marginTop: 6,
+    textAlign: 'center',
+    color: colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  missingBtn: {
+    marginTop: 18,
+    backgroundColor: colors.brand,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: radius.md,
+  },
+  missingBtnText: {
+    color: '#fff',
+    fontWeight: '800',
+  },
+});

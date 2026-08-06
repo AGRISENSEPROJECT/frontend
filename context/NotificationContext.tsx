@@ -4,16 +4,25 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
+import { AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getCommunitySocket } from '@/services/communitySocket';
+import { authApi } from '@/services/api';
+import {
+  getCommunitySocket,
+  reconnectCommunitySocket,
+} from '@/services/communitySocket';
 import {
   AppNotification,
   loadNotifications,
+  mapServerNotification,
   markAllNotificationsRead,
   markNotificationRead,
+  mergeNotificationLists,
   prependNotification,
+  saveNotifications,
   seedFeatureNotifications,
 } from '@/services/notifications';
 
@@ -41,14 +50,57 @@ const NotificationContext = createContext<NotificationContextValue>({
   markAllRead: async () => undefined,
 });
 
+async function readAuthUserId(): Promise<string | null> {
+  try {
+    const userJson = await AsyncStorage.getItem('user');
+    if (!userJson) return null;
+    const user = JSON.parse(userJson);
+    return user?.id || null;
+  } catch {
+    return null;
+  }
+}
+
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
+  const userIdRef = useRef<string | null>(null);
+  const loadGen = useRef(0);
+
+  const applyInbox = useCallback(async (uid: string, gen: number) => {
+    const local = await loadNotifications(uid);
+    if (gen !== loadGen.current) return;
+
+    let merged = local;
+    try {
+      const remote = await authApi.getNotifications({ limit: 40 });
+      if (gen !== loadGen.current) return;
+      const mapped = (remote?.items || [])
+        .map(mapServerNotification)
+        .filter(Boolean) as AppNotification[];
+      merged = mergeNotificationLists(local, mapped);
+      await saveNotifications(merged, uid);
+    } catch {
+      // Local inbox still usable offline / if API unavailable
+    }
+
+    if (gen !== loadGen.current) return;
+    setNotifications(merged);
+
+    const seeded = await seedFeatureNotifications(uid);
+    if (gen !== loadGen.current) return;
+    if (seeded) setNotifications(seeded);
+  }, []);
 
   const refresh = useCallback(async () => {
-    const items = await loadNotifications();
-    setNotifications(items);
-  }, []);
+    const uid = userIdRef.current || (await readAuthUserId());
+    if (!uid) {
+      setNotifications([]);
+      return;
+    }
+    const gen = ++loadGen.current;
+    await applyInbox(uid, gen);
+  }, [applyInbox]);
 
   const push = useCallback(
     async (
@@ -58,51 +110,91 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         read?: boolean;
       },
     ) => {
-      const next = await prependNotification(item);
+      const uid = userIdRef.current;
+      if (!uid) return;
+      const next = await prependNotification(item, uid);
       setNotifications(next);
     },
     [],
   );
 
   const markRead = useCallback(async (id: string) => {
-    const next = await markNotificationRead(id);
+    const uid = userIdRef.current;
+    if (!uid) return;
+    const target = notifications.find((n) => n.id === id);
+    const next = await markNotificationRead(id, uid);
     setNotifications(next);
-  }, []);
+    // Best-effort server sync for persisted notifications
+    try {
+      const isServer =
+        target?.meta?.source === 'server' ||
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          id,
+        );
+      if (isServer) await authApi.markNotificationRead(id);
+    } catch {
+      // ignore
+    }
+  }, [notifications]);
 
   const markAllRead = useCallback(async () => {
-    const next = await markAllNotificationsRead();
+    const uid = userIdRef.current;
+    if (!uid) return;
+    const next = await markAllNotificationsRead(uid);
     setNotifications(next);
+    try {
+      await authApi.markAllNotificationsRead();
+    } catch {
+      // ignore
+    }
   }, []);
 
+  // Watch auth user (provider stays mounted across login)
   useEffect(() => {
-    (async () => {
-      try {
-        const userJson = await AsyncStorage.getItem('user');
-        if (userJson) {
-          const user = JSON.parse(userJson);
-          setUserId(user?.id || null);
-        }
-      } catch {
-        // ignore
-      }
-      await refresh();
-      const seeded = await seedFeatureNotifications();
-      if (seeded) setNotifications(seeded);
-    })();
-  }, [refresh]);
+    let mounted = true;
 
-  // Re-load per-user inbox once auth user is known
-  useEffect(() => {
-    if (!userId) return;
-    (async () => {
-      await refresh();
-      const seeded = await seedFeatureNotifications();
-      if (seeded) setNotifications(seeded);
-    })();
-  }, [userId, refresh]);
+    const syncUser = async () => {
+      const id = await readAuthUserId();
+      if (!mounted) return;
+      if (id === userIdRef.current) return;
+
+      userIdRef.current = id;
+      setUserId(id);
+
+      if (!id) {
+        loadGen.current += 1;
+        setNotifications([]);
+        return;
+      }
+
+      const gen = ++loadGen.current;
+      await applyInbox(id, gen);
+      try {
+        await reconnectCommunitySocket();
+      } catch {
+        // socket optional at bootstrap
+      }
+    };
+
+    syncUser();
+    const interval = setInterval(syncUser, 1500);
+
+    const onAppState = (state: AppStateStatus) => {
+      if (state === 'active') syncUser();
+    };
+    const sub = AppState.addEventListener('change', onAppState);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+      sub.remove();
+    };
+  }, [applyInbox]);
 
   // Live community events → notifications
   useEffect(() => {
+    if (!userId) return;
+
     let mounted = true;
     let onCreated: ((post: any) => void) | null = null;
     let onCommented: ((comment: any) => void) | null = null;
@@ -117,7 +209,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           const authorId = post?.author?.id || post?.user?.id;
           if (authorId && userId && authorId === userId) return;
           const authorName = post?.author?.username || post?.user?.username || 'A farmer';
-          const snippet = String(post?.description || '').trim().slice(0, 90);
+          const snippet = String(post?.title || post?.description || '')
+            .trim()
+            .slice(0, 90);
           await push({
             type: 'community_post',
             title: 'New community post',

@@ -96,6 +96,11 @@ export const authApi = {
         conversationById: (id: string) => `/api/community/conversations/${id}`,
         conversationMessages: (id: string) => `/api/community/conversations/${id}/messages`,
         conversationRead: (id: string) => `/api/community/conversations/${id}/read`,
+        communityPresence: '/api/community/presence',
+        notifications: '/api/notifications',
+        notificationsUnreadCount: '/api/notifications/unread-count',
+        notificationsReadAll: '/api/notifications/read-all',
+        notificationRead: (id: string) => `/api/notifications/${id}/read`,
     },
 
     signup: async (data: SignupData): Promise<SignupResponse> => {
@@ -471,6 +476,44 @@ export const authApi = {
     markConversationRead: async (id: string): Promise<any> => {
         return await authenticatedFetch(authApi.endpoints.conversationRead(id), {
             method: 'POST',
+        });
+    },
+
+    getCommunityPresence: async (): Promise<{ onlineUserIds: string[] }> => {
+        return await authenticatedFetch(authApi.endpoints.communityPresence, {
+            method: 'GET',
+        });
+    },
+
+    getNotifications: async (
+        params: { page?: number; limit?: number; unreadOnly?: boolean } = {},
+    ): Promise<any> => {
+        const query = new URLSearchParams();
+        if (params.page) query.append('page', String(params.page));
+        if (params.limit) query.append('limit', String(params.limit));
+        if (params.unreadOnly) query.append('unreadOnly', 'true');
+        const qs = query.toString();
+        return await authenticatedFetch(
+            `${authApi.endpoints.notifications}${qs ? `?${qs}` : ''}`,
+            { method: 'GET' },
+        );
+    },
+
+    getNotificationsUnreadCount: async (): Promise<{ unreadCount: number }> => {
+        return await authenticatedFetch(authApi.endpoints.notificationsUnreadCount, {
+            method: 'GET',
+        });
+    },
+
+    markNotificationRead: async (id: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.notificationRead(id), {
+            method: 'PATCH',
+        });
+    },
+
+    markAllNotificationsRead: async (): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.notificationsReadAll, {
+            method: 'PATCH',
         });
     },
 

@@ -12,7 +12,9 @@ import { useRouter, usePathname } from 'expo-router';
 import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authApi } from '@/services/api';
+import { disconnectCommunitySocket } from '@/services/communitySocket';
 import StatusModal from '@/components/ui/StatusModal';
+import { colors } from '@/constants/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SIDEBAR_WIDTH = Math.min(SCREEN_WIDTH * 0.75, 290);
@@ -89,6 +91,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         'skipFarm',
         'preferredFarmId',
       ]);
+      disconnectCommunitySocket();
       onClose();
       router.replace('/signin');
     } catch {
@@ -207,12 +210,12 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 9999,
     elevation: 9999,
-    backgroundColor: 'rgba(15, 23, 42, 0.55)',
+    backgroundColor: colors.overlay,
     flexDirection: 'row',
   },
   sidebar: {
     height: '100%',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     elevation: 10000,
     shadowColor: '#000',
     shadowOffset: { width: 4, height: 0 },
@@ -225,7 +228,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 16,
-    backgroundColor: '#0B4D26',
+    backgroundColor: colors.brand,
     flexDirection: 'row',
     alignItems: 'center',
   },

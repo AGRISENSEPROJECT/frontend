@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useNotifications } from '@/context/NotificationContext';
 import { notificationIcon, timeAgoShort } from '@/services/notifications';
+import { colors, radius, shadow } from '@/constants/theme';
 
 type Props = {
   color?: string;
@@ -60,7 +61,7 @@ export default function NotificationBell({ color = '#fff', size = 24 }: Props) {
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity onPress={() => setOpen(false)} hitSlop={8}>
-                  <Ionicons name="close" size={22} color="#374151" />
+                  <Ionicons name="close" size={22} color={colors.textSecondary} />
                 </TouchableOpacity>
               </View>
             </View>
@@ -69,7 +70,7 @@ export default function NotificationBell({ color = '#fff', size = 24 }: Props) {
               {notifications.length === 0 ? (
                 <View style={styles.empty}>
                   <View style={styles.emptyIcon}>
-                    <Ionicons name="notifications-outline" size={28} color="#0B4D26" />
+                    <Ionicons name="notifications-outline" size={28} color={colors.brand} />
                   </View>
                   <Text style={styles.emptyTitle}>You're all caught up</Text>
                   <Text style={styles.emptyBody}>
@@ -88,7 +89,7 @@ export default function NotificationBell({ color = '#fff', size = 24 }: Props) {
                       <Ionicons
                         name={notificationIcon(item.type) as any}
                         size={18}
-                        color="#0B4D26"
+                        color={colors.brand}
                       />
                     </View>
                     <View style={styles.itemBody}>
@@ -126,12 +127,12 @@ const styles = StyleSheet.create({
     minWidth: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: '#DC2626',
+    backgroundColor: colors.danger,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 3,
     borderWidth: 1.5,
-    borderColor: '#0B4D26',
+    borderColor: colors.brand,
   },
   badgeText: {
     color: '#fff',
@@ -140,21 +141,17 @@ const styles = StyleSheet.create({
   },
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    backgroundColor: colors.overlay,
     justifyContent: 'flex-start',
     paddingTop: 72,
     paddingHorizontal: 14,
   },
   sheet: {
-    backgroundColor: '#fff',
-    borderRadius: 18,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     maxHeight: '72%',
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    elevation: 10,
+    ...shadow.float,
   },
   sheetHeader: {
     flexDirection: 'row',
@@ -162,13 +159,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
   sheetTitle: {
     fontSize: 17,
     fontWeight: '800',
-    color: '#0B4D26',
+    color: colors.brand,
   },
   sheetActions: {
     flexDirection: 'row',
@@ -176,7 +173,7 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   markAll: {
-    color: '#166534',
+    color: colors.brandMid,
     fontWeight: '700',
     fontSize: 13,
   },
@@ -192,7 +189,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#E8F5E9',
+    backgroundColor: colors.brandSoft,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
@@ -200,12 +197,12 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#111827',
+    color: colors.text,
   },
   emptyBody: {
     marginTop: 6,
     textAlign: 'center',
-    color: '#6B7280',
+    color: colors.textMuted,
     fontSize: 13,
     lineHeight: 19,
   },
@@ -217,7 +214,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   itemUnread: {
-    backgroundColor: '#F0FDF4',
+    backgroundColor: colors.brandWash,
   },
   iconWrap: {
     width: 36,
@@ -228,7 +225,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   iconWrapUnread: {
-    backgroundColor: '#DCFCE7',
+    backgroundColor: colors.brandMuted,
   },
   itemBody: {
     flex: 1,
@@ -243,25 +240,25 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     fontWeight: '800',
-    color: '#111827',
+    color: colors.text,
   },
   itemTime: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#9CA3AF',
+    color: colors.textMuted,
   },
   itemText: {
     marginTop: 3,
     fontSize: 13,
     lineHeight: 18,
-    color: '#4B5563',
+    color: colors.textSecondary,
     fontWeight: '500',
   },
   dot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#16A34A',
+    backgroundColor: colors.unread,
     marginTop: 6,
   },
 });
