@@ -102,9 +102,12 @@ export const authApi = {
         notifications: '/api/notifications',
         notificationsUnreadCount: '/api/notifications/unread-count',
         notificationsReadAll: '/api/notifications/read-all',
+        notificationsClear: '/api/notifications',
         notificationRead: (id: string) => `/api/notifications/${id}/read`,
+        notificationById: (id: string) => `/api/notifications/${id}`,
         communityBlocks: '/api/community/blocks',
         communityUnblock: (userId: string) => `/api/community/blocks/${userId}`,
+        communityMessage: (id: string) => `/api/community/messages/${id}`,
     },
 
     signup: async (data: SignupData): Promise<SignupResponse> => {
@@ -577,6 +580,34 @@ export const authApi = {
     markAllNotificationsRead: async (): Promise<any> => {
         return await authenticatedFetch(authApi.endpoints.notificationsReadAll, {
             method: 'PATCH',
+        });
+    },
+
+    clearAllNotifications: async (): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.notificationsClear, {
+            method: 'DELETE',
+        });
+    },
+
+    deleteNotification: async (id: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.notificationById(id), {
+            method: 'DELETE',
+        });
+    },
+
+    deleteConversationMessage: async (messageId: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.communityMessage(messageId), {
+            method: 'DELETE',
+        });
+    },
+
+    updateConversationMessage: async (
+        messageId: string,
+        content: string,
+    ): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.communityMessage(messageId), {
+            method: 'PATCH',
+            body: JSON.stringify({ content }),
         });
     },
 

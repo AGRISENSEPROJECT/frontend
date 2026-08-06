@@ -11,6 +11,8 @@ import {
   Keyboard,
   Platform,
   StyleSheet,
+  Alert,
+  Pressable,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,6 +30,8 @@ type ChatMessage = {
   createdAt: string;
   conversationId?: string;
   sender?: Author | null;
+  deletedAt?: string | null;
+  editedAt?: string | null;
 };
 
 export default function CommunityChat() {
@@ -44,6 +48,7 @@ export default function CommunityChat() {
   const [headerName, setHeaderName] = useState(contactName);
   const [headerAvatar, setHeaderAvatar] = useState<string | null>(null);
   const [conversationType, setConversationType] = useState<'direct' | 'group'>('direct');
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
   const listRef = useRef<FlatList>(null);
 
@@ -107,19 +112,51 @@ export default function CommunityChat() {
   useEffect(() => {
     if (!conversationId) return;
     let sock: any;
+    let onNew: ((message: ChatMessage) => void) | null = null;
+    let onUpdated: ((message: ChatMessage) => void) | null = null;
+    let onDeleted: ((payload: { id: string; conversationId: string }) => void) | null = null;
+
     (async () => {
       try {
         sock = await getCommunitySocket();
         sock.emit('conversation:join', { conversationId });
-        sock.on('message:new', (message: ChatMessage) => {
+
+        onNew = (message: ChatMessage) => {
           if (message.conversationId !== conversationId) return;
           setMessages((prev) => {
-            if (prev.some((m) => m.id === message.id)) return prev;
+            const idx = prev.findIndex((m) => m.id === message.id);
+            if (idx >= 0) {
+              const next = [...prev];
+              next[idx] = { ...next[idx], ...message };
+              return next;
+            }
             return [...prev, message];
           });
           setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 40);
           authApi.markConversationRead(conversationId).catch(() => undefined);
-        });
+        };
+
+        onUpdated = (message: ChatMessage) => {
+          if (message.conversationId !== conversationId) return;
+          setMessages((prev) =>
+            prev.map((m) => (m.id === message.id ? { ...m, ...message } : m)),
+          );
+        };
+
+        onDeleted = (payload) => {
+          if (payload.conversationId !== conversationId) return;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === payload.id
+                ? { ...m, deletedAt: new Date().toISOString(), content: '[deleted]' }
+                : m,
+            ),
+          );
+        };
+
+        sock.on('message:new', onNew);
+        sock.on('message:updated', onUpdated);
+        sock.on('message:deleted', onDeleted);
       } catch (error) {
         console.warn('Chat socket unavailable', error);
       }
@@ -128,26 +165,100 @@ export default function CommunityChat() {
     return () => {
       if (sock) {
         sock.emit('conversation:leave', { conversationId });
-        sock.off('message:new');
+        if (onNew) sock.off('message:new', onNew);
+        if (onUpdated) sock.off('message:updated', onUpdated);
+        if (onDeleted) sock.off('message:deleted', onDeleted);
       }
     };
   }, [conversationId]);
 
+  const cancelEdit = () => {
+    setEditingMessageId(null);
+    setInput('');
+  };
+
   const send = async () => {
     if (!conversationId || !input.trim() || sending) return;
     const content = input.trim();
-    setInput('');
     setSending(true);
     try {
-      const message = await authApi.sendConversationMessage(conversationId, content);
-      setMessages((prev) => (prev.some((m) => m.id === message.id) ? prev : [...prev, message]));
-      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 40);
+      if (editingMessageId) {
+        const updated = await authApi.updateConversationMessage(editingMessageId, content);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === editingMessageId
+              ? {
+                  ...m,
+                  content: updated.content || content,
+                  editedAt: updated.editedAt || new Date().toISOString(),
+                }
+              : m,
+          ),
+        );
+        setEditingMessageId(null);
+        setInput('');
+      } else {
+        setInput('');
+        const message = await authApi.sendConversationMessage(conversationId, content);
+        setMessages((prev) =>
+          prev.some((m) => m.id === message.id) ? prev : [...prev, message],
+        );
+        setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 40);
+      }
     } catch (error) {
       console.error('Send failed', error);
       setInput(content);
     } finally {
       setSending(false);
     }
+  };
+
+  const startEdit = (message: ChatMessage) => {
+    if (message.deletedAt) return;
+    setEditingMessageId(message.id);
+    setInput(message.content);
+  };
+
+  const deleteMessage = (message: ChatMessage) => {
+    const run = async () => {
+      try {
+        await authApi.deleteConversationMessage(message.id);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === message.id
+              ? { ...m, deletedAt: new Date().toISOString(), content: '[deleted]' }
+              : m,
+          ),
+        );
+        if (editingMessageId === message.id) cancelEdit();
+      } catch (error) {
+        console.error('Delete message failed', error);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.confirm('Delete this message?')) run();
+      return;
+    }
+    Alert.alert('Delete message?', 'This cannot be undone for others.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: run },
+    ]);
+  };
+
+  const openMessageActions = (message: ChatMessage) => {
+    if (message.sender?.id !== me?.id || message.deletedAt) return;
+    if (Platform.OS === 'web') {
+      const choice = window.prompt('Type "edit" or "delete"', 'edit');
+      if (choice?.toLowerCase() === 'edit') startEdit(message);
+      if (choice?.toLowerCase() === 'delete') deleteMessage(message);
+      return;
+    }
+    Alert.alert('Message', undefined, [
+      { text: 'Edit', onPress: () => startEdit(message) },
+      { text: 'Delete', style: 'destructive', onPress: () => deleteMessage(message) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   const formatTime = (value: string) => {
@@ -306,19 +417,30 @@ export default function CommunityChat() {
                       style={styles.bubbleAvatar}
                     />
                   )}
-                  <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
+                  <Pressable
+                    onLongPress={() => openMessageActions(item)}
+                    delayLongPress={280}
+                    style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}
+                  >
                     {!mine && (
                       <Text style={styles.senderName}>
                         {item.sender?.username || 'Farmer'}
                       </Text>
                     )}
-                    <Text style={[styles.bubbleText, mine && styles.bubbleTextMine]}>
-                      {item.content}
+                    <Text
+                      style={[
+                        styles.bubbleText,
+                        mine && styles.bubbleTextMine,
+                        item.deletedAt && styles.bubbleDeleted,
+                      ]}
+                    >
+                      {item.deletedAt ? 'This message was deleted' : item.content}
                     </Text>
                     <Text style={[styles.bubbleTime, mine && styles.bubbleTimeMine]}>
+                      {item.editedAt && !item.deletedAt ? 'edited · ' : ''}
                       {formatTime(item.createdAt)}
                     </Text>
-                  </View>
+                  </Pressable>
                 </View>
               </View>
             );
@@ -327,10 +449,19 @@ export default function CommunityChat() {
       )}
 
       <View style={[styles.composer, { paddingBottom: composerBottomPad }]}>
+        {editingMessageId ? (
+          <View style={styles.editingBar}>
+            <Ionicons name="create-outline" size={16} color={colors.brandMid} />
+            <Text style={styles.editingText}>Editing message</Text>
+            <TouchableOpacity onPress={cancelEdit} hitSlop={8}>
+              <Text style={styles.editingCancel}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
         <View style={styles.composerInner}>
           <TextInput
             style={styles.input}
-            placeholder="Message..."
+            placeholder={editingMessageId ? 'Edit message...' : 'Message...'}
             placeholderTextColor={colors.textMuted}
             value={input}
             onChangeText={setInput}
@@ -343,12 +474,16 @@ export default function CommunityChat() {
             style={[styles.sendBtn, (!input.trim() || sending) && styles.sendBtnDisabled]}
             onPress={send}
             disabled={sending || !input.trim()}
-            accessibilityLabel="Send message"
+            accessibilityLabel={editingMessageId ? 'Save edit' : 'Send message'}
           >
             {sending ? (
               <ActivityIndicator color="#fff" size="small" />
             ) : (
-              <Ionicons name="send" size={18} color="#fff" />
+              <Ionicons
+                name={editingMessageId ? 'checkmark' : 'send'}
+                size={18}
+                color="#fff"
+              />
             )}
           </TouchableOpacity>
         </View>
@@ -489,6 +624,10 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     fontWeight: '500',
   },
+  bubbleDeleted: {
+    fontStyle: 'italic',
+    opacity: 0.8,
+  },
   bubbleTextMine: {
     color: colors.textOnBrand,
   },
@@ -535,6 +674,24 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     paddingHorizontal: space.md,
     paddingTop: space.sm,
+  },
+  editingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  editingText: {
+    flex: 1,
+    color: colors.brandMid,
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  editingCancel: {
+    color: colors.textMuted,
+    fontWeight: '700',
+    fontSize: 13,
   },
   composerInner: {
     flexDirection: 'row',

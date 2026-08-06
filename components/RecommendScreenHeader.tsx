@@ -2,6 +2,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import NotificationBell from '@/components/NotificationBell';
+import { useSidebar } from '@/context/SidebarContext';
 
 export type RecommendCategory = 'crop' | 'irrigation' | 'pest' | 'fertilizer' | 'weather';
 
@@ -31,15 +32,17 @@ interface RecommendScreenHeaderProps {
 
 export function RecommendScreenHeader({ activeCategory }: RecommendScreenHeaderProps) {
   const router = useRouter();
+  const { toggleSidebar } = useSidebar();
 
   return (
     <View style={styles.header}>
       <View style={styles.topRow}>
         <TouchableOpacity
-          onPress={() => router.replace('/(main)/dashboard')}
+          onPress={toggleSidebar}
           style={styles.iconBtn}
+          accessibilityLabel="Open menu"
         >
-          <Ionicons name="arrow-back" size={24} color="#fff" />
+          <Ionicons name="menu" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.title}>Recommends</Text>
         <NotificationBell color="#fff" size={24} />

@@ -20,7 +20,7 @@ type Props = {
 };
 
 export default function NotificationBell({ color = '#fff', size = 24 }: Props) {
-  const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
+  const { notifications, unreadCount, markRead, markAllRead, clearAll } = useNotifications();
   const [open, setOpen] = useState(false);
 
   const handleOpen = () => setOpen(true);
@@ -36,6 +36,10 @@ export default function NotificationBell({ color = '#fff', size = 24 }: Props) {
         router.push(route as any);
       }
     }, 120);
+  };
+
+  const handleClearAll = async () => {
+    await clearAll();
   };
 
   return (
@@ -58,6 +62,11 @@ export default function NotificationBell({ color = '#fff', size = 24 }: Props) {
                 {unreadCount > 0 && (
                   <TouchableOpacity onPress={() => markAllRead()} hitSlop={8}>
                     <Text style={styles.markAll}>Mark all read</Text>
+                  </TouchableOpacity>
+                )}
+                {notifications.length > 0 && (
+                  <TouchableOpacity onPress={handleClearAll} hitSlop={8}>
+                    <Text style={styles.clearAll}>Clear</Text>
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity onPress={() => setOpen(false)} hitSlop={8}>
@@ -174,6 +183,11 @@ const styles = StyleSheet.create({
   },
   markAll: {
     color: colors.brandMid,
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  clearAll: {
+    color: colors.danger,
     fontWeight: '700',
     fontSize: 13,
   },

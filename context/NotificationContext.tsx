@@ -24,6 +24,7 @@ import {
   prependNotification,
   saveNotifications,
   seedFeatureNotifications,
+  clearNotifications,
 } from '@/services/notifications';
 
 type NotificationContextValue = {
@@ -39,6 +40,7 @@ type NotificationContextValue = {
   ) => Promise<void>;
   markRead: (id: string) => Promise<void>;
   markAllRead: () => Promise<void>;
+  clearAll: () => Promise<void>;
 };
 
 const NotificationContext = createContext<NotificationContextValue>({
@@ -48,6 +50,7 @@ const NotificationContext = createContext<NotificationContextValue>({
   push: async () => undefined,
   markRead: async () => undefined,
   markAllRead: async () => undefined,
+  clearAll: async () => undefined,
 });
 
 async function readAuthUserId(): Promise<string | null> {
@@ -146,6 +149,18 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       await authApi.markAllNotificationsRead();
     } catch {
       // ignore
+    }
+  }, []);
+
+  const clearAll = useCallback(async () => {
+    const uid = userIdRef.current;
+    if (!uid) return;
+    await clearNotifications(uid);
+    setNotifications([]);
+    try {
+      await authApi.clearAllNotifications();
+    } catch {
+      // Local clear still applied
     }
   }, []);
 
@@ -284,8 +299,16 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   );
 
   const value = useMemo(
-    () => ({ notifications, unreadCount, refresh, push, markRead, markAllRead }),
-    [notifications, unreadCount, refresh, push, markRead, markAllRead],
+    () => ({
+      notifications,
+      unreadCount,
+      refresh,
+      push,
+      markRead,
+      markAllRead,
+      clearAll,
+    }),
+    [notifications, unreadCount, refresh, push, markRead, markAllRead, clearAll],
   );
 
   return (

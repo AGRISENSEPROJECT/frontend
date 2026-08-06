@@ -10,6 +10,7 @@ import { humanize, formatEntry, cleanPayload, formatDate } from '@/components/re
 import ResultFieldCard, { GrowthScoreBar } from '@/components/recommendations/ResultFieldCard';
 import NotificationBell from '@/components/NotificationBell';
 import { RecommendListSkeleton } from '@/components/ui/Skeleton';
+import { useSidebar } from '@/context/SidebarContext';
 
 const CATEGORIES = [
     { type: 'crop', icon: 'leaf-outline' as const, emoji: '🌱', title: 'Crop Recommendations', subtitle: 'Best crops based on soil, weather, and market demand.' },
@@ -405,6 +406,7 @@ function UnavailablePanel({
 
 export default function Recommends() {
     const router = useRouter();
+    const { toggleSidebar } = useSidebar();
     const params = useLocalSearchParams<{ predictionId?: string }>();
     const [view, setView] = useState<'loading' | 'list' | 'form'>('loading');
     const [refreshing, setRefreshing] = useState(false);
@@ -537,10 +539,11 @@ export default function Recommends() {
             <View style={styles.header}>
                 <View style={styles.headerRow}>
                     <TouchableOpacity
-                        onPress={() => router.replace('/(main)/dashboard')}
+                        onPress={toggleSidebar}
                         style={styles.headerBtn}
+                        accessibilityLabel="Open menu"
                     >
-                        <Ionicons name="arrow-back" size={24} color="#fff" />
+                        <Ionicons name="menu" size={24} color="#fff" />
                     </TouchableOpacity>
                     <Text style={styles.headerTitle}>Recommends</Text>
                     <NotificationBell color="#fff" size={24} />
