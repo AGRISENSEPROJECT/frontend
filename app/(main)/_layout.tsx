@@ -1,7 +1,6 @@
 import { View, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Slot } from 'expo-router';
-import '../global.css';
 
 /** Main tab shell — sidebar lives at the root so every screen can open it. */
 export default function MainLayout() {
