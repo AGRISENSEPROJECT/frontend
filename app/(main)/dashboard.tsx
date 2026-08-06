@@ -44,6 +44,7 @@ function latestPostCover(post: { id: string; imageUrl?: string | null }) {
 
 type CommunityPostPreview = {
     id: string;
+    title?: string | null;
     description: string;
     imageUrl?: string | null;
     createdAt: string;
@@ -197,8 +198,14 @@ export default function Dashboard() {
 
                 const user = JSON.parse(userJson);
 
-                if (!user.isEmailVerified) {
-                    router.replace(`/verifyEmail?email=${encodeURIComponent(user.email)}&userId=${user.id}`);
+                // Only force verify when explicitly false (missing/undefined should not trap users)
+                if (user.isEmailVerified === false) {
+                    const emailParam = user.email
+                        ? encodeURIComponent(user.email)
+                        : '';
+                    router.replace(
+                        `/verifyEmail?email=${emailParam}&userId=${user.id || ''}`,
+                    );
                     return;
                 }
 
@@ -626,15 +633,19 @@ export default function Dashboard() {
                                                     <Text style={dashStyles.postBadgeText}>Community</Text>
                                                 </View>
                                             </View>
-                                            <Text style={dashStyles.postSnippet} numberOfLines={3}>
-                                                {post.description || 'Community update'}
-                                            </Text>
-                                            <View style={dashStyles.postFooter}>
-                                                <Text style={dashStyles.postStats}>
-                                                    {post.likeCount ?? post.likes?.length ?? 0} likes ·{' '}
-                                                    {post.commentCount ?? post.comments?.length ?? 0} comments
+                                            <View style={dashStyles.postCardBottom}>
+                                                <Text style={dashStyles.postSnippet} numberOfLines={2}>
+                                                    {post.title?.trim() ||
+                                                        post.description?.trim() ||
+                                                        'Community update'}
                                                 </Text>
-                                                <Text style={dashStyles.readMore}>Read more →</Text>
+                                                <View style={dashStyles.postFooter}>
+                                                    <Text style={dashStyles.postStats}>
+                                                        {post.likeCount ?? post.likes?.length ?? 0} likes ·{' '}
+                                                        {post.commentCount ?? post.comments?.length ?? 0} comments
+                                                    </Text>
+                                                    <Text style={dashStyles.readMore}>Read more →</Text>
+                                                </View>
                                             </View>
                                         </View>
                                     </TouchableOpacity>
@@ -924,13 +935,20 @@ const dashStyles = StyleSheet.create({
         height: '100%',
     },
     postCardOverlay: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(8, 45, 24, 0.58)',
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        height: '55%',
+        backgroundColor: 'rgba(8, 45, 24, 0.55)',
     },
     postCardContent: {
         flex: 1,
         padding: 14,
         justifyContent: 'space-between',
+    },
+    postCardBottom: {
+        gap: 8,
     },
     postCardMeta: {
         flexDirection: 'row',
@@ -948,12 +966,18 @@ const dashStyles = StyleSheet.create({
         color: '#fff',
         fontWeight: '800',
         fontSize: 13,
+        textShadowColor: 'rgba(0,0,0,0.35)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 3,
     },
     postTime: {
-        color: 'rgba(255,255,255,0.8)',
+        color: 'rgba(255,255,255,0.9)',
         fontSize: 11,
         fontWeight: '600',
         marginTop: 1,
+        textShadowColor: 'rgba(0,0,0,0.35)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 3,
     },
     postBadge: {
         flexDirection: 'row',
@@ -971,19 +995,20 @@ const dashStyles = StyleSheet.create({
     },
     postSnippet: {
         color: '#fff',
-        fontSize: 15,
-        fontWeight: '700',
-        lineHeight: 21,
-        marginTop: 10,
+        fontSize: 16,
+        fontWeight: '800',
+        lineHeight: 22,
+        textShadowColor: 'rgba(0,0,0,0.45)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 4,
     },
     postFooter: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        marginTop: 10,
     },
     postStats: {
-        color: 'rgba(255,255,255,0.85)',
+        color: 'rgba(255,255,255,0.9)',
         fontSize: 11,
         fontWeight: '600',
     },

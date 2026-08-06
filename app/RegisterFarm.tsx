@@ -61,8 +61,8 @@ export default function RegisterFarm() {
                     emailAddress: user.email || ''
                 }));
 
-                if (!user.isEmailVerified) {
-                    router.replace(`/verifyEmail?email=${encodeURIComponent(user.email)}&userId=${user.id}`);
+                if (user.isEmailVerified === false) {
+                    router.replace(`/verifyEmail?email=${encodeURIComponent(user.email || '')}&userId=${user.id || ''}`);
                 }
             } catch (error) {
                 console.error('Error checking auth:', error);

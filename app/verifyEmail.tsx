@@ -88,18 +88,24 @@ export default function VerifyEmail() {
     };
 
     const handleResendCode = async () => {
-        if (!userId) {
+        const safeEmail =
+            email && email !== 'undefined' && email.includes('@') ? email : '';
+
+        if (!safeEmail && !userId) {
             setStatusModal({
                 visible: true,
                 type: 'error',
                 title: 'Missing Information',
-                message: 'User ID missing. Please try signing up again.',
+                message: 'Email missing. Please try signing up again.',
             });
             return;
         }
 
         try {
-            await authApi.resendOTP(userId);
+            await authApi.resendOTP({
+                email: safeEmail || undefined,
+                userId: userId || undefined,
+            });
             setStatusModal({
                 visible: true,
                 type: 'success',

@@ -54,14 +54,15 @@ export default function Home() {
         // Validate the stored token against the *current* API before auto-routing.
         try {
           const profile = await authApi.getProfile(token);
+          const freshUser = profile?.user || user;
           if (profile?.user) {
             await AsyncStorage.setItem('user', JSON.stringify(profile.user));
             await AsyncStorage.setItem(API_URL_KEY, currentApi);
           }
 
-          if (!profile?.user?.isEmailVerified && !user.isEmailVerified) {
+          if (freshUser.isEmailVerified === false) {
             router.replace(
-              `/verifyEmail?email=${encodeURIComponent(user.email)}&userId=${user.id}`,
+              `/verifyEmail?email=${encodeURIComponent(freshUser.email || '')}&userId=${freshUser.id || ''}`,
             );
             return;
           }

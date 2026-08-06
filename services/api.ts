@@ -310,10 +310,12 @@ export const authApi = {
     },
 
     createPost: async (data: {
+        title: string;
         description: string;
         imageUri: string;
     }): Promise<any> => {
         const formData = new FormData();
+        formData.append('title', data.title);
         formData.append('description', data.description);
 
         const rawName = data.imageUri.split('?')[0].split('/').pop() || `post-${Date.now()}.jpg`;
@@ -372,9 +374,10 @@ export const authApi = {
 
     updatePost: async (
         postId: string,
-        data: { description: string; imageUri?: string | null },
+        data: { title?: string; description: string; imageUri?: string | null },
     ): Promise<any> => {
         const formData = new FormData();
+        if (data.title?.trim()) formData.append('title', data.title.trim());
         formData.append('description', data.description);
 
         if (data.imageUri) {
@@ -490,14 +493,22 @@ export const authApi = {
         }
     },
 
-    resendOTP: async (userId: string): Promise<any> => {
+    resendOTP: async (data: { email?: string; userId?: string }): Promise<any> => {
         try {
+            const payload: { email?: string; userId?: string } = {};
+            if (data.email?.trim()) payload.email = data.email.trim();
+            if (data.userId?.trim()) payload.userId = data.userId.trim();
+
+            if (!payload.email && !payload.userId) {
+                throw new Error('Email is required to resend the verification code');
+            }
+
             const response = await fetch(`${ENV.API_URL}${authApi.endpoints.resendOTP}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ userId }),
+                body: JSON.stringify(payload),
             });
             const result = await response.json();
             if (!response.ok) {

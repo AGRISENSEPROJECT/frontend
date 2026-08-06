@@ -53,6 +53,7 @@ type Author = {
 
 type Post = {
   id: string;
+  title?: string | null;
   description: string;
   imageUrl?: string | null;
   author: Author | null;
@@ -93,6 +94,7 @@ export default function Community() {
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [commentContent, setCommentContent] = useState('');
   const [postDescription, setPostDescription] = useState('');
+  const [postTitle, setPostTitle] = useState('');
   const [postImageUri, setPostImageUri] = useState<string | null>(null);
   const [highlightPostId, setHighlightPostId] = useState<string | null>(null);
 
@@ -414,12 +416,14 @@ export default function Community() {
     setCreateModalVisible(false);
     setEditingPostId(null);
     setPostDescription('');
+    setPostTitle('');
     setPostImageUri(null);
   };
 
   const openCreatePost = () => {
     setEditingPostId(null);
     setPostDescription('');
+    setPostTitle('');
     setPostImageUri(null);
     setCreateModalVisible(true);
   };
@@ -428,6 +432,7 @@ export default function Community() {
     setManagePost(null);
     setCommentModalVisible(false);
     setEditingPostId(post.id);
+    setPostTitle(post.title || '');
     setPostDescription(post.description || '');
     setPostImageUri(post.imageUrl || null);
     setCreateModalVisible(true);
@@ -479,6 +484,15 @@ export default function Community() {
   };
 
   const handleSavePost = async () => {
+    if (!postTitle.trim()) {
+      setStatusModal({
+        visible: true,
+        type: 'info',
+        title: 'Title required',
+        message: 'Add a short title — this is what appears on the dashboard.',
+      });
+      return;
+    }
     if (!postDescription.trim()) {
       setStatusModal({
         visible: true,
@@ -508,6 +522,7 @@ export default function Community() {
           !!postImageUri &&
           (postImageUri.startsWith('http://') || postImageUri.startsWith('https://'));
         const updated = await authApi.updatePost(editingPostId!, {
+          title: postTitle.trim(),
           description: postDescription.trim(),
           imageUri: isRemoteImage ? null : postImageUri,
         });
@@ -525,6 +540,7 @@ export default function Community() {
         });
       } else {
         const post = await authApi.createPost({
+          title: postTitle.trim(),
           description: postDescription.trim(),
           imageUri: postImageUri!,
         });
@@ -815,13 +831,18 @@ export default function Community() {
                   </View>
 
                   <TouchableOpacity activeOpacity={0.9} onPress={() => openPostDetail(post)}>
+                    {!!post.title && (
+                      <Text style={styles.postTitle} numberOfLines={2}>
+                        {post.title}
+                      </Text>
+                    )}
                     <Text style={styles.postContent} numberOfLines={3}>
                       <Text style={styles.captionAuthor}>
                         {post.author?.username || 'Farmer'}{' '}
                       </Text>
                       {post.description}
                     </Text>
-                    {post.description?.length > 120 && (
+                    {(post.description?.length || 0) > 120 && (
                       <Text style={styles.readMore}>Read more</Text>
                     )}
                   </TouchableOpacity>
@@ -915,8 +936,8 @@ export default function Community() {
             <ScrollView style={styles.modalBody}>
               <Text style={styles.addPostSubtitleModal}>
                 {editingPostId
-                  ? 'Update your photo or caption.'
-                  : 'Posts are photo-first — add a cover image, then write a short caption.'}
+                  ? 'Update your title, photo, or description.'
+                  : 'Photo-first posts: cover image + short title (shown on the dashboard) + description.'}
               </Text>
 
               {postImageUri ? (
@@ -947,8 +968,16 @@ export default function Community() {
               )}
 
               <TextInput
+                style={styles.titleInput}
+                placeholder="Short title (e.g. Tomato tips this week)"
+                placeholderTextColor="#999"
+                value={postTitle}
+                onChangeText={setPostTitle}
+                maxLength={120}
+              />
+              <TextInput
                 style={styles.descriptionInput}
-                placeholder="Write a caption..."
+                placeholder="Write the full description..."
                 placeholderTextColor="#999"
                 multiline
                 value={postDescription}
@@ -1009,6 +1038,9 @@ export default function Community() {
                     style={styles.postDetailCover}
                     resizeMode="cover"
                   />
+                  {!!selectedPost.title && (
+                    <Text style={styles.postDetailTitle}>{selectedPost.title}</Text>
+                  )}
                   <Text style={styles.postDetailText}>{selectedPost.description}</Text>
                   <View style={styles.engagementStats}>
                     <Text style={styles.statText}>
@@ -1537,6 +1569,16 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 18, fontWeight: 'bold' },
   modalBody: { padding: 16 },
   addPostSubtitleModal: { fontSize: 14, color: '#666', marginBottom: 16, lineHeight: 20 },
+  titleInput: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111',
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    padding: 12,
+  },
   descriptionInput: {
     fontSize: 16,
     color: '#333',
@@ -1547,6 +1589,19 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
     borderRadius: 12,
     padding: 12,
+  },
+  postTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  postDetailTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#111827',
+    marginTop: 12,
+    marginBottom: 6,
   },
   postBtn: {
     backgroundColor: '#166534',
