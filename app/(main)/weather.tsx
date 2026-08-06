@@ -7,6 +7,7 @@ import * as Font from 'expo-font';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useSidebar } from '../../context/SidebarContext';
+import NotificationBell from '@/components/NotificationBell';
 
 const API_KEY = '4a681263221d7d234ffedd87dc199cab';
 
@@ -221,9 +222,7 @@ export default function Weather() {
                         <Ionicons name="location" size={16} color="#fff" />
                         <Text style={styles.locationText} numberOfLines={1}>{weatherData.location}</Text>
                     </View>
-                    <TouchableOpacity style={styles.iconButton}>
-                        <Ionicons name="notifications-outline" size={24} color="#fff" />
-                    </TouchableOpacity>
+                    <NotificationBell color="#fff" size={24} />
                 </View>
 
                 <View style={styles.heroCard}>

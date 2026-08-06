@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import '../global.css';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { NotificationProvider } from '@/context/NotificationContext';
 
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
@@ -32,29 +33,31 @@ export default function RootLayout() {
 
     return (
         <ThemeProvider value={theme}>
-            <Stack>
-                <Stack.Screen name="index" options={{ headerShown: false }} />
-                <Stack.Screen name="signup" options={{ headerShown: false }} />
-                <Stack.Screen name="signin" options={{ headerShown: false }} />
-                <Stack.Screen name="verifyEmail" options={{ headerShown: false }} />
-                <Stack.Screen name="(main)" options={{ headerShown: false }} />
-                <Stack.Screen name="SoilDetails" options={{ headerShown: false }} />
-                <Stack.Screen name="ResultsPage" options={{ headerShown: false }} />
-                <Stack.Screen name="DataScanned" options={{ headerShown: false }} />
-                <Stack.Screen name="recommends" options={{ headerShown: false }} />
-                <Stack.Screen name="CropRecommendation" options={{ headerShown: false }} />
-                <Stack.Screen name="IrrigationRecommendation" options={{ headerShown: false }} />
-                <Stack.Screen name="PestDiseaseRecommendation" options={{ headerShown: false }} />
-                <Stack.Screen name="FertilizerRecommendation" options={{ headerShown: false }} />
-                <Stack.Screen name="WeatherRecommendation" options={{ headerShown: false }} />
-                <Stack.Screen name="ImageCapture" options={{ headerShown: false }} />
-                <Stack.Screen name="camera-demo" options={{ headerShown: false }} />
-                <Stack.Screen name="RegisterFarm" options={{ headerShown: false }} />
-                <Stack.Screen name="CommunityChat" options={{ headerShown: false }} />
-                <Stack.Screen name="ContactProfile" options={{ headerShown: false }} />
-                <Stack.Screen name="+not-found" />
-            </Stack>
-            <StatusBar style="auto" />
+            <NotificationProvider>
+                <Stack>
+                    <Stack.Screen name="index" options={{ headerShown: false }} />
+                    <Stack.Screen name="signup" options={{ headerShown: false }} />
+                    <Stack.Screen name="signin" options={{ headerShown: false }} />
+                    <Stack.Screen name="verifyEmail" options={{ headerShown: false }} />
+                    <Stack.Screen name="(main)" options={{ headerShown: false }} />
+                    <Stack.Screen name="SoilDetails" options={{ headerShown: false }} />
+                    <Stack.Screen name="ResultsPage" options={{ headerShown: false }} />
+                    <Stack.Screen name="DataScanned" options={{ headerShown: false }} />
+                    <Stack.Screen name="recommends" options={{ headerShown: false }} />
+                    <Stack.Screen name="CropRecommendation" options={{ headerShown: false }} />
+                    <Stack.Screen name="IrrigationRecommendation" options={{ headerShown: false }} />
+                    <Stack.Screen name="PestDiseaseRecommendation" options={{ headerShown: false }} />
+                    <Stack.Screen name="FertilizerRecommendation" options={{ headerShown: false }} />
+                    <Stack.Screen name="WeatherRecommendation" options={{ headerShown: false }} />
+                    <Stack.Screen name="ImageCapture" options={{ headerShown: false }} />
+                    <Stack.Screen name="camera-demo" options={{ headerShown: false }} />
+                    <Stack.Screen name="RegisterFarm" options={{ headerShown: false }} />
+                    <Stack.Screen name="CommunityChat" options={{ headerShown: false }} />
+                    <Stack.Screen name="ContactProfile" options={{ headerShown: false }} />
+                    <Stack.Screen name="+not-found" />
+                </Stack>
+                <StatusBar style="auto" />
+            </NotificationProvider>
         </ThemeProvider>
     );
 }

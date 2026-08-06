@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, RefreshControl, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { authApi, predictionsApi, Recommendation } from '@/services/api';
 import PredictionForm from '@/components/recommendations/PredictionForm';
 import { humanize, formatEntry, cleanPayload, formatDate } from '@/components/recommendations/PayloadRows';
 import ResultFieldCard, { GrowthScoreBar } from '@/components/recommendations/ResultFieldCard';
+import NotificationBell from '@/components/NotificationBell';
 
 const CATEGORIES = [
     { type: 'crop', icon: 'leaf-outline' as const, emoji: '🌱', title: 'Crop Recommendations', subtitle: 'Best crops based on soil, weather, and market demand.' },
@@ -403,6 +404,7 @@ function UnavailablePanel({
 
 export default function Recommends() {
     const router = useRouter();
+    const params = useLocalSearchParams<{ predictionId?: string }>();
     const [view, setView] = useState<'loading' | 'list' | 'form'>('loading');
     const [refreshing, setRefreshing] = useState(false);
     const [items, setItems] = useState<Recommendation[]>([]);
@@ -445,7 +447,12 @@ export default function Recommends() {
                 } else {
                     const runs = getPredictionRuns(loaded);
                     const primary = loaded.find((r: any) => r.isPrimary) || loaded[0];
-                    setSelectedPredictionId(runs[0]?.id || primary?.predictionId || null);
+                    const fromNotif =
+                        typeof params.predictionId === 'string' &&
+                        runs.some((r) => r.id === params.predictionId)
+                            ? params.predictionId
+                            : null;
+                    setSelectedPredictionId(fromNotif || runs[0]?.id || primary?.predictionId || null);
                     setActiveType(primary?.type || 'crop');
                     setChoiceIndex(0);
                     setView('list');
@@ -455,7 +462,7 @@ export default function Recommends() {
                 setView('form');
             }
         })();
-    }, [loadRecommendations]);
+    }, [loadRecommendations, params.predictionId]);
 
     const switchFarm = async (farm: any) => {
         if (farm.id === selectedFarmId) return;
@@ -535,9 +542,7 @@ export default function Recommends() {
                         <Ionicons name="arrow-back" size={24} color="#fff" />
                     </TouchableOpacity>
                     <Text style={styles.headerTitle}>Recommends</Text>
-                    <TouchableOpacity style={styles.headerBtn}>
-                        <Ionicons name="notifications-outline" size={24} color="#fff" />
-                    </TouchableOpacity>
+                    <NotificationBell color="#fff" size={24} />
                 </View>
 
                 {view === 'list' && (

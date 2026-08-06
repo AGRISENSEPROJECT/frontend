@@ -51,7 +51,7 @@ type Conversation = {
 export default function Community() {
   const router = useRouter();
   const { toggleSidebar } = useSidebar();
-  const params = useLocalSearchParams<{ tab?: string }>();
+  const params = useLocalSearchParams<{ tab?: string; postId?: string }>();
 
   const [communityTab, setCommunityTab] = useState<'Feed' | 'Inbox' | 'Group'>('Feed');
   const [posts, setPosts] = useState<Post[]>([]);
@@ -65,6 +65,7 @@ export default function Community() {
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [commentContent, setCommentContent] = useState('');
   const [postDescription, setPostDescription] = useState('');
+  const [highlightPostId, setHighlightPostId] = useState<string | null>(null);
 
   const [newChatVisible, setNewChatVisible] = useState(false);
   const [newGroupVisible, setNewGroupVisible] = useState(false);
@@ -81,6 +82,9 @@ export default function Community() {
   });
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const feedScrollRef = useRef<ScrollView>(null);
+  const postOffsets = useRef<Record<string, number>>({});
+  const openedPostId = useRef<string | null>(null);
 
   const timeAgo = (dateString: string) => {
     const seconds = Math.floor((Date.now() - new Date(dateString).getTime()) / 1000);
@@ -136,6 +140,34 @@ export default function Community() {
     if (params.tab === 'messages') setCommunityTab('Inbox');
   }, [params.tab]);
 
+  const openPostDetail = useCallback((post: Post) => {
+    setSelectedPost(post);
+    setCommentModalVisible(true);
+    setHighlightPostId(post.id);
+  }, []);
+
+  // Deep-link from dashboard notifications / latest update cards
+  useEffect(() => {
+    const targetId = typeof params.postId === 'string' ? params.postId : null;
+    if (!targetId || posts.length === 0) return;
+    if (openedPostId.current === targetId) return;
+
+    const post = posts.find((p) => p.id === targetId);
+    if (!post) return;
+
+    openedPostId.current = targetId;
+    setCommunityTab('Feed');
+    setHighlightPostId(targetId);
+    openPostDetail(post);
+
+    const offset = postOffsets.current[targetId];
+    if (typeof offset === 'number') {
+      setTimeout(() => {
+        feedScrollRef.current?.scrollTo({ y: Math.max(0, offset - 12), animated: true });
+      }, 250);
+    }
+  }, [params.postId, posts, openPostDetail]);
+
   useEffect(() => {
     (async () => {
       try {
@@ -153,22 +185,29 @@ export default function Community() {
 
   useEffect(() => {
     let mounted = true;
+    let onCreated: ((post: any) => void) | null = null;
+    let onDeleted: ((payload: { id: string }) => void) | null = null;
+    let onLiked: ((payload: any) => void) | null = null;
+    let onUnliked: ((payload: any) => void) | null = null;
+    let onCommented: ((comment: any) => void) | null = null;
+    let onConversationUpdated: (() => void) | null = null;
+
     (async () => {
       try {
         const sock = await getCommunitySocket();
         if (!mounted) return;
 
-        sock.on('post:created', (post: any) => {
+        onCreated = (post: any) => {
           setPosts((prev) => {
             const normalized = normalizePosts([post])[0];
             if (prev.some((p) => p.id === normalized.id)) return prev;
             return [normalized, ...prev];
           });
-        });
-        sock.on('post:deleted', ({ id }: { id: string }) => {
+        };
+        onDeleted = ({ id }: { id: string }) => {
           setPosts((prev) => prev.filter((p) => p.id !== id));
-        });
-        sock.on('post:liked', (payload: any) => {
+        };
+        onLiked = (payload: any) => {
           setPosts((prev) =>
             prev.map((p) => {
               if (p.id !== payload.postId) return p;
@@ -183,8 +222,8 @@ export default function Community() {
               };
             }),
           );
-        });
-        sock.on('post:unliked', (payload: any) => {
+        };
+        onUnliked = (payload: any) => {
           setPosts((prev) =>
             prev.map((p) => {
               if (p.id !== payload.postId) return p;
@@ -196,8 +235,8 @@ export default function Community() {
               };
             }),
           );
-        });
-        sock.on('post:commented', (comment: any) => {
+        };
+        onCommented = (comment: any) => {
           setPosts((prev) =>
             prev.map((p) => {
               if (p.id !== comment.postId) return p;
@@ -214,11 +253,18 @@ export default function Community() {
             if (prev.comments.some((c) => c.id === comment.id)) return prev;
             return { ...prev, comments: [...prev.comments, comment] };
           });
-        });
-        sock.on('conversation:updated', () => {
+        };
+        onConversationUpdated = () => {
           if (communityTab === 'Inbox') fetchConversations('direct');
           if (communityTab === 'Group') fetchConversations('group');
-        });
+        };
+
+        sock.on('post:created', onCreated);
+        sock.on('post:deleted', onDeleted);
+        sock.on('post:liked', onLiked);
+        sock.on('post:unliked', onUnliked);
+        sock.on('post:commented', onCommented);
+        sock.on('conversation:updated', onConversationUpdated);
       } catch (error) {
         console.warn('Community socket unavailable', error);
       }
@@ -226,15 +272,15 @@ export default function Community() {
 
     return () => {
       mounted = false;
-      // Keep the shared socket alive for CommunityChat; only detach feed listeners.
+      // Keep the shared socket alive; only detach this screen's listeners.
       getCommunitySocket()
         .then((sock) => {
-          sock.off('post:created');
-          sock.off('post:deleted');
-          sock.off('post:liked');
-          sock.off('post:unliked');
-          sock.off('post:commented');
-          sock.off('conversation:updated');
+          if (onCreated) sock.off('post:created', onCreated);
+          if (onDeleted) sock.off('post:deleted', onDeleted);
+          if (onLiked) sock.off('post:liked', onLiked);
+          if (onUnliked) sock.off('post:unliked', onUnliked);
+          if (onCommented) sock.off('post:commented', onCommented);
+          if (onConversationUpdated) sock.off('conversation:updated', onConversationUpdated);
         })
         .catch(() => undefined);
     };
@@ -499,6 +545,7 @@ export default function Community() {
 
       {communityTab === 'Feed' && (
         <ScrollView
+          ref={feedScrollRef}
           style={styles.postsList}
           refreshControl={
             <RefreshControl
@@ -522,8 +569,17 @@ export default function Community() {
               const liked =
                 post.likedByMe ||
                 post.likes.some((like) => like.user?.id === userData?.id);
+              const isHighlighted = highlightPostId === post.id;
               return (
-                <View key={post.id} style={styles.postCard}>
+                <TouchableOpacity
+                  key={post.id}
+                  activeOpacity={0.92}
+                  onPress={() => openPostDetail(post)}
+                  onLayout={(e) => {
+                    postOffsets.current[post.id] = e.nativeEvent.layout.y;
+                  }}
+                  style={[styles.postCard, isHighlighted && styles.postCardHighlight]}
+                >
                   <View style={styles.postHeader}>
                     <View style={styles.authorInfo}>
                       <Image
@@ -544,7 +600,12 @@ export default function Community() {
                     )}
                   </View>
 
-                  <Text style={styles.postContent}>{post.description}</Text>
+                  <Text style={styles.postContent} numberOfLines={6}>
+                    {post.description}
+                  </Text>
+                  {post.description?.length > 220 && (
+                    <Text style={styles.readMore}>Read more</Text>
+                  )}
 
                   <View style={styles.engagementStats}>
                     <Text style={styles.statText}>
@@ -571,10 +632,7 @@ export default function Community() {
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.actionButton}
-                      onPress={() => {
-                        setSelectedPost(post);
-                        setCommentModalVisible(true);
-                      }}
+                      onPress={() => openPostDetail(post)}
                     >
                       <Ionicons name="chatbubble-outline" size={20} color="#666" />
                       <Text style={styles.actionText}>Comment</Text>
@@ -589,7 +647,7 @@ export default function Community() {
                       </TouchableOpacity>
                     )}
                   </View>
-                </View>
+                </TouchableOpacity>
               );
             })
           )}
@@ -702,17 +760,43 @@ export default function Community() {
         </View>
       </Modal>
 
-      {/* Comments */}
+      {/* Post detail + Comments */}
       <Modal visible={commentModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Comments</Text>
+              <Text style={styles.modalTitle}>Post</Text>
               <TouchableOpacity onPress={() => setCommentModalVisible(false)}>
                 <Ionicons name="close" size={24} color="#333" />
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalBody}>
+              {selectedPost && (
+                <View style={styles.postDetailBlock}>
+                  <View style={styles.authorInfo}>
+                    <Image
+                      source={avatar(selectedPost.author?.profileImage)}
+                      style={styles.profilePic}
+                    />
+                    <View>
+                      <Text style={styles.authorName}>
+                        {selectedPost.author?.username || 'Farmer'}
+                      </Text>
+                      <Text style={styles.timeAgo}>{timeAgo(selectedPost.createdAt)}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.postDetailText}>{selectedPost.description}</Text>
+                  <View style={styles.engagementStats}>
+                    <Text style={styles.statText}>
+                      {selectedPost.likeCount ?? selectedPost.likes.length} Likes
+                    </Text>
+                    <Text style={styles.statText}>
+                      {selectedPost.commentCount ?? selectedPost.comments.length} Comments
+                    </Text>
+                  </View>
+                </View>
+              )}
+              <Text style={styles.commentsSectionLabel}>Comments</Text>
               {selectedPost?.comments?.length ? (
                 selectedPost.comments.map((c) => (
                   <View key={c.id} style={styles.commentItem}>
@@ -730,7 +814,7 @@ export default function Community() {
                 ))
               ) : (
                 <View style={styles.emptyComments}>
-                  <Text style={styles.emptyCommentsText}>No comments yet.</Text>
+                  <Text style={styles.emptyCommentsText}>No comments yet. Be the first!</Text>
                 </View>
               )}
             </ScrollView>
@@ -933,6 +1017,10 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
     overflow: 'hidden',
   },
+  postCardHighlight: {
+    borderColor: '#86EFAC',
+    backgroundColor: '#F0FDF4',
+  },
   postHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -945,9 +1033,35 @@ const styles = StyleSheet.create({
   timeAgo: { color: '#666', fontSize: 12 },
   postContent: {
     paddingHorizontal: 12,
-    paddingBottom: 12,
+    paddingBottom: 4,
     fontSize: 14,
     lineHeight: 20,
+  },
+  readMore: {
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    color: '#166534',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  postDetailBlock: {
+    marginBottom: 14,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  postDetailText: {
+    marginTop: 12,
+    fontSize: 15,
+    lineHeight: 22,
+    color: '#1F2937',
+    fontWeight: '500',
+  },
+  commentsSectionLabel: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 10,
   },
   engagementStats: {
     flexDirection: 'row',

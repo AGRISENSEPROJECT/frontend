@@ -1,6 +1,7 @@
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import NotificationBell from '@/components/NotificationBell';
 
 export type RecommendCategory = 'crop' | 'irrigation' | 'pest' | 'fertilizer' | 'weather';
 
@@ -34,9 +35,7 @@ export function RecommendScreenHeader({ activeCategory }: RecommendScreenHeaderP
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text className="text-white text-lg font-semibold">Recommends</Text>
-        <TouchableOpacity className="p-2">
-          <Ionicons name="notifications-outline" size={24} color="#fff" />
-        </TouchableOpacity>
+        <NotificationBell color="#fff" size={24} />
       </View>
       {/* Lighter green category bar */}
       <View className="bg-[#4A7C59] flex-row justify-center items-center gap-3 py-3 rounded-t-2xl">
