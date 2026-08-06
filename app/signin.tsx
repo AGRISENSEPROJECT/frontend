@@ -38,8 +38,13 @@ export default function SignIn() {
             identifierError = 'Email or phone number is required';
         } else if (id.includes('@')) {
             if (!EMAIL_RE.test(id)) identifierError = 'Invalid email format';
-        } else if (!PHONE_RE.test(id)) {
-            identifierError = 'Use international phone format, e.g. +250788123456';
+        } else if (PHONE_RE.test(id.replace(/[\s-]/g, ''))) {
+            // valid phone (allow spaces/dashes typed by user — normalized on submit)
+        } else if (/[a-zA-Z]/.test(id)) {
+            identifierError =
+                'Username login is not supported. Use your email or phone (e.g. +250788123456)';
+        } else {
+            identifierError = 'Use your email or phone in international format, e.g. +250788123456';
         }
 
         const newErrors = {
@@ -59,7 +64,7 @@ export default function SignIn() {
             const id = formData.identifier.trim();
             const payload = id.includes('@')
                 ? { email: id, password: formData.password }
-                : { phoneNumber: id, password: formData.password };
+                : { phoneNumber: id.replace(/[\s-]/g, ''), password: formData.password };
 
             const data = await authApi.signin(payload);
 
@@ -136,7 +141,7 @@ export default function SignIn() {
                 <View className="space-y-6 mt-8">
                     <View>
                         <TextInput
-                            placeholder="Email or phone (+250...)"
+                            placeholder="Email or phone (+250...), not username"
                             value={formData.identifier}
                             onChangeText={(text) => setFormData({ ...formData, identifier: text })}
                             className={`bg-gray-100 mb-4 p-4 rounded-lg ${errors.identifier ? 'border-red-500 border' : ''}`}

@@ -143,9 +143,72 @@ export default function Dashboard() {
     const fetchLatestRun = useCallback(async (farmId: string) => {
         setLoadingRun(true);
         try {
-            const response = await predictionsApi.getRuns({ farmId, limit: 5 });
+            const response = await predictionsApi.getRuns({ farmId, limit: 10 });
             const runs = response.items || response.runs || [];
-            const successRun = runs.find((run: any) => run.status === 'success') || null;
+
+            // Prefer a successful run; otherwise any run that already has recommendations attached.
+            let successRun =
+                runs.find((run: any) => String(run?.status || '').toLowerCase() === 'success') ||
+                runs.find((run: any) => Array.isArray(run?.recommendations) && run.recommendations.length > 0) ||
+                null;
+
+            // Same data source as the Recommends page — hydrate if runs are missing/empty.
+            const hydrateFromRecommendations = async (predictionId?: string | null) => {
+                const recResponse = await predictionsApi.getRecommendations({ farmId, limit: 50 });
+                const items = recResponse.items || [];
+                if (!items.length) return null;
+
+                const targetId = predictionId || items[0].predictionId;
+                const related = items.filter((item: any) => item.predictionId === targetId);
+                const pool = related.length ? related : items;
+                const crop =
+                    pool.find((r: any) => r.type === 'crop' && r.isPrimary) ||
+                    pool.find((r: any) => r.type === 'crop') ||
+                    pool[0];
+                const payload = crop?.payload || {};
+
+                return {
+                    id: targetId || crop?.predictionId || crop?.id,
+                    status: 'success',
+                    farmId,
+                    recommendations: pool,
+                    predictionSummary: {
+                        bestCrop:
+                            payload.best_crop ||
+                            payload.bestCrop ||
+                            payload.crop ||
+                            crop?.title ||
+                            null,
+                        confidence:
+                            payload.confidence ??
+                            payload.suitability_score ??
+                            payload.suitabilityScore ??
+                            null,
+                        fertilizer:
+                            pool.find((r: any) => r.type === 'fertilizer')?.payload
+                                ?.recommended_fertilizer ||
+                            pool.find((r: any) => r.type === 'fertilizer')?.title ||
+                            null,
+                        soilTexture: payload.soil_texture || payload.soilTexture || null,
+                        timestamp: crop?.createdAt || items[0].createdAt,
+                    },
+                    createdAt: crop?.createdAt || items[0].createdAt,
+                };
+            };
+
+            if (!successRun) {
+                successRun = await hydrateFromRecommendations();
+            } else if (!Array.isArray(successRun.recommendations) || successRun.recommendations.length === 0) {
+                const hydrated = await hydrateFromRecommendations(successRun.id);
+                if (hydrated) {
+                    successRun = {
+                        ...successRun,
+                        recommendations: hydrated.recommendations,
+                        predictionSummary: successRun.predictionSummary || hydrated.predictionSummary,
+                    };
+                }
+            }
+
             setLatestRun(successRun);
 
             if (successRun?.id) {
@@ -155,6 +218,7 @@ export default function Dashboard() {
                     const crop =
                         successRun.predictionSummary?.bestCrop ||
                         successRun.recommendations?.find((r: any) => r.type === 'crop')?.payload?.crop ||
+                        successRun.recommendations?.find((r: any) => r.type === 'crop')?.payload?.best_crop ||
                         'your farm';
                     await pushNotification({
                         type: 'recommendation',
@@ -168,6 +232,33 @@ export default function Dashboard() {
             }
         } catch (error) {
             console.error('Error fetching latest run:', error);
+            // Last resort: recommendations-only path (keeps dashboard aligned with Recommends page)
+            try {
+                const recResponse = await predictionsApi.getRecommendations({ farmId, limit: 50 });
+                const items = recResponse.items || [];
+                if (items.length) {
+                    const crop = items.find((r: any) => r.type === 'crop') || items[0];
+                    const related = items.filter((r: any) => r.predictionId === crop.predictionId);
+                    setLatestRun({
+                        id: crop.predictionId,
+                        status: 'success',
+                        farmId,
+                        recommendations: related.length ? related : items,
+                        predictionSummary: {
+                            bestCrop:
+                                crop.payload?.best_crop ||
+                                crop.payload?.bestCrop ||
+                                crop.payload?.crop ||
+                                crop.title,
+                            confidence: crop.payload?.confidence ?? crop.payload?.suitability_score,
+                        },
+                        createdAt: crop.createdAt,
+                    });
+                    return;
+                }
+            } catch (fallbackError) {
+                console.error('Recommendation fallback failed:', fallbackError);
+            }
             setLatestRun(null);
         } finally {
             setLoadingRun(false);
@@ -349,19 +440,63 @@ export default function Dashboard() {
                             expanded={expandedCard === 'overview' || expandedCard == null}
                             onPress={() => toggleAccordion('overview')}
                         >
-                            {summary.bestCrop && (
-                                <HighlightLine label="Best crop :" value={String(summary.bestCrop)} />
+                            {(summary.bestCrop ||
+                                cropRecs[0]?.payload?.best_crop ||
+                                cropRecs[0]?.payload?.bestCrop ||
+                                cropRecs[0]?.payload?.crop ||
+                                cropRecs[0]?.title) && (
+                                <HighlightLine
+                                    label="Best crop :"
+                                    value={String(
+                                        summary.bestCrop ||
+                                            cropRecs[0]?.payload?.best_crop ||
+                                            cropRecs[0]?.payload?.bestCrop ||
+                                            cropRecs[0]?.payload?.crop ||
+                                            cropRecs[0]?.title,
+                                    )}
+                                />
                             )}
-                            {summary.confidence != null && (
+                            {(summary.confidence != null ||
+                                cropRecs[0]?.payload?.confidence != null ||
+                                cropRecs[0]?.payload?.suitability_score != null) && (
                                 <Text style={dashStyles.bodyText}>
-                                    Confidence: {Math.round(Number(summary.confidence) * (Number(summary.confidence) <= 1 ? 100 : 1))}%
+                                    Confidence:{' '}
+                                    {Math.round(
+                                        Number(
+                                            summary.confidence ??
+                                                cropRecs[0]?.payload?.confidence ??
+                                                cropRecs[0]?.payload?.suitability_score,
+                                        ) *
+                                            (Number(
+                                                summary.confidence ??
+                                                    cropRecs[0]?.payload?.confidence ??
+                                                    cropRecs[0]?.payload?.suitability_score,
+                                            ) <= 1
+                                                ? 100
+                                                : 1),
+                                    )}
+                                    %
                                 </Text>
                             )}
                             {summary.soilTexture && (
                                 <Text style={dashStyles.bodyText}>Soil texture: {String(summary.soilTexture)}</Text>
                             )}
-                            {summary.fertilizer && (
-                                <HighlightLine label="Fertilizer :" value={String(summary.fertilizer)} />
+                            {(summary.fertilizer ||
+                                fertRecs[0]?.payload?.recommended_fertilizer ||
+                                fertRecs[0]?.title) && (
+                                <HighlightLine
+                                    label="Fertilizer :"
+                                    value={String(
+                                        summary.fertilizer ||
+                                            fertRecs[0]?.payload?.recommended_fertilizer ||
+                                            fertRecs[0]?.title,
+                                    )}
+                                />
+                            )}
+                            {!summary.bestCrop && cropRecs.length === 0 && (
+                                <Text style={dashStyles.bodyText}>
+                                    Analysis ready — open recommendations for full details.
+                                </Text>
                             )}
                             <TouchableOpacity onPress={() => router.push('/recommends')} style={{ marginTop: 8 }}>
                                 <Text style={dashStyles.link}>See all recommendations →</Text>
