@@ -13,6 +13,7 @@ export type ConversationRowData = {
   id: string;
   type: 'direct' | 'group';
   name: string;
+  imageUrl?: string | null;
   lastMessage?: { content: string; createdAt: string; sender?: Author | null } | null;
   unreadCount?: number;
   otherMembers?: Author[];
@@ -38,7 +39,9 @@ export default function ConversationRow({
 }: Props) {
   const unread = (item.unreadCount || 0) > 0;
   const avatarUri =
-    mode === 'Inbox' ? item.otherMembers?.[0]?.profileImage : null;
+    mode === 'Inbox'
+      ? item.otherMembers?.[0]?.profileImage
+      : item.imageUrl;
 
   return (
     <TouchableOpacity
@@ -47,7 +50,7 @@ export default function ConversationRow({
       activeOpacity={0.75}
     >
       <View style={styles.avatarWrap}>
-        {mode === 'Group' ? (
+        {mode === 'Group' && !avatarUri ? (
           <View style={styles.groupAvatar}>
             <Ionicons name="people" size={22} color={colors.brand} />
           </View>

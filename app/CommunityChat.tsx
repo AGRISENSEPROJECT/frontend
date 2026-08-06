@@ -40,6 +40,9 @@ export default function CommunityChat() {
   const [sending, setSending] = useState(false);
   const [me, setMe] = useState<any>(null);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
+  const [headerName, setHeaderName] = useState(contactName);
+  const [headerAvatar, setHeaderAvatar] = useState<string | null>(null);
+  const [conversationType, setConversationType] = useState<'direct' | 'group'>('direct');
   const insets = useSafeAreaInsets();
   const listRef = useRef<FlatList>(null);
 
@@ -50,11 +53,23 @@ export default function CommunityChat() {
     }
     setLoading(true);
     try {
-      const data = await authApi.getConversationMessages(conversationId, {
-        page: 1,
-        limit: 80,
-      });
+      const [data, convo] = await Promise.all([
+        authApi.getConversationMessages(conversationId, {
+          page: 1,
+          limit: 80,
+        }),
+        authApi.getConversation(conversationId).catch(() => null),
+      ]);
       setMessages(data?.items || []);
+      if (convo) {
+        setHeaderName(convo.name || contactName);
+        setConversationType(convo.type === 'group' ? 'group' : 'direct');
+        const avatar =
+          convo.type === 'group'
+            ? convo.imageUrl || null
+            : convo.otherMembers?.[0]?.profileImage || null;
+        setHeaderAvatar(avatar);
+      }
       await authApi.markConversationRead(conversationId);
     } catch (error) {
       console.error('Failed to load messages', error);
@@ -62,7 +77,7 @@ export default function CommunityChat() {
       setLoading(false);
       setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 80);
     }
-  }, [conversationId]);
+  }, [conversationId, contactName]);
 
   useEffect(() => {
     (async () => {
@@ -178,6 +193,14 @@ export default function CommunityChat() {
   const composerBottomPad =
     keyboardOffset > 0 ? 8 : Math.max(insets.bottom, 10);
 
+  const openInfo = () => {
+    if (!conversationId) return;
+    router.push({
+      pathname: '/ContactProfile',
+      params: { conversationId, name: headerName },
+    });
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.screen}
@@ -200,26 +223,33 @@ export default function CommunityChat() {
         <TouchableOpacity
           style={styles.headerCenter}
           activeOpacity={0.85}
-          onPress={() =>
-            router.push({ pathname: '/ContactProfile', params: { name: contactName } })
-          }
+          onPress={openInfo}
         >
-          <Image source={require('../assets/profile-pic.png')} style={styles.headerAvatar} />
-          <View style={{ flex: 1 }}>
+          {conversationType === 'group' && !headerAvatar ? (
+            <View style={[styles.headerAvatar, styles.headerGroupAvatar]}>
+              <Ionicons name="people" size={20} color={colors.brand} />
+            </View>
+          ) : (
+            <Image
+              source={
+                headerAvatar
+                  ? { uri: headerAvatar }
+                  : require('../assets/profile-pic.png')
+              }
+              style={styles.headerAvatar}
+            />
+          )}
+          <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.headerName} numberOfLines={1}>
-              {contactName}
+              {headerName}
             </Text>
-            <Text style={styles.headerSub}>Tap for info</Text>
+            <Text style={styles.headerSub}>
+              {conversationType === 'group' ? 'Tap for group info' : 'Tap for info'}
+            </Text>
           </View>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.headerIcon}
-          onPress={() =>
-            router.push({ pathname: '/ContactProfile', params: { name: contactName } })
-          }
-          hitSlop={8}
-        >
+        <TouchableOpacity style={styles.headerIcon} onPress={openInfo} hitSlop={8}>
           <Ionicons name="ellipsis-vertical" size={20} color={colors.textOnBrand} />
         </TouchableOpacity>
       </View>
@@ -245,7 +275,7 @@ export default function CommunityChat() {
               </View>
               <Text style={styles.emptyChatTitle}>Start the conversation</Text>
               <Text style={styles.emptyChatBody}>
-                Say hello and share farm tips with {contactName}.
+                Say hello and share farm tips with {headerName}.
               </Text>
             </View>
           }
@@ -360,6 +390,13 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.35)',
+    backgroundColor: '#fff',
+  },
+  headerGroupAvatar: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.brandSoft,
+    borderColor: 'rgba(255,255,255,0.5)',
   },
   headerName: {
     color: colors.textOnBrand,

@@ -1,10 +1,11 @@
 import {
   View,
   Text,
-  Pressable,
+  TouchableOpacity,
   Image,
   StyleSheet,
   Dimensions,
+  ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,10 +15,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authApi } from '@/services/api';
 import { disconnectCommunitySocket } from '@/services/communitySocket';
 import StatusModal from '@/components/ui/StatusModal';
-import { colors } from '@/constants/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const SIDEBAR_WIDTH = Math.min(SCREEN_WIDTH * 0.75, 290);
+const SIDEBAR_WIDTH = Math.min(Math.round(SCREEN_WIDTH * 0.82), 300);
 
 const menuItems = [
   { icon: 'grid-outline', activeIcon: 'grid', label: 'Dashboard', route: '/(main)/dashboard', match: ['dashboard'] },
@@ -113,12 +113,11 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           styles.sidebar,
           {
             width: SIDEBAR_WIDTH,
-            paddingTop: Math.max(insets.top, 10),
-            paddingBottom: Math.max(insets.bottom, 10),
+            paddingTop: Math.max(insets.top, 12),
+            paddingBottom: Math.max(insets.bottom, 12),
           },
         ]}
       >
-        {/* Profile */}
         <View style={styles.profileSection}>
           <Image
             source={
@@ -134,66 +133,69 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
               {username || 'Farmer'}
             </Text>
           </View>
-          <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn}>
+          <TouchableOpacity onPress={onClose} hitSlop={12} style={styles.closeBtn}>
             <Ionicons name="close" size={18} color="#0B4D26" />
-          </Pressable>
+          </TouchableOpacity>
         </View>
 
-        <Text style={styles.sectionLabel}>Menu</Text>
+        <Text style={styles.sectionLabel}>MENU</Text>
 
-        <View style={styles.menuList}>
+        <ScrollView
+          style={styles.menuScroll}
+          contentContainerStyle={styles.menuList}
+          showsVerticalScrollIndicator={false}
+        >
           {menuItems.map((item) => {
             const active = isActive(item);
             return (
-              <Pressable
+              <TouchableOpacity
                 key={item.label}
+                activeOpacity={0.75}
                 onPress={() => {
                   onClose();
                   router.push(item.route as any);
                 }}
-                style={({ pressed }) => [
-                  styles.menuItem,
-                  active && styles.menuItemActive,
-                  pressed && !active && styles.menuItemPressed,
-                ]}
+                style={[styles.menuItem, active && styles.menuItemActive]}
               >
                 <View style={[styles.iconWrap, active && styles.iconWrapActive]}>
                   <Ionicons
                     name={(active ? item.activeIcon : item.icon) as any}
                     size={20}
-                    color={active ? '#fff' : '#0B4D26'}
+                    color={active ? '#FFFFFF' : '#0B4D26'}
                   />
                 </View>
-                <Text
-                  style={[styles.menuText, active && styles.menuTextActive]}
-                  numberOfLines={1}
-                >
-                  {item.label}
-                </Text>
+                {/* View wrapper avoids Android flex-on-Text bugs that hid labels */}
+                <View style={styles.menuLabelWrap}>
+                  <Text
+                    style={[styles.menuText, active ? styles.menuTextActive : null]}
+                    numberOfLines={1}
+                  >
+                    {item.label}
+                  </Text>
+                </View>
                 {active ? (
                   <Ionicons name="chevron-forward" size={16} color="#0B4D26" />
-                ) : (
-                  <View style={{ width: 16 }} />
-                )}
-              </Pressable>
+                ) : null}
+              </TouchableOpacity>
             );
           })}
-        </View>
+        </ScrollView>
 
-        <View style={styles.spacer} />
-
-        <Pressable
+        <TouchableOpacity
           onPress={handleLogout}
-          style={({ pressed }) => [styles.logoutButton, pressed && { opacity: 0.85 }]}
+          activeOpacity={0.85}
+          style={styles.logoutButton}
         >
           <View style={styles.logoutIcon}>
             <Ionicons name="log-out-outline" size={20} color="#DC2626" />
           </View>
-          <Text style={styles.logoutText}>Logout</Text>
-        </Pressable>
+          <View style={styles.menuLabelWrap}>
+            <Text style={styles.logoutText}>Logout</Text>
+          </View>
+        </TouchableOpacity>
       </View>
 
-      <Pressable style={styles.overlayClose} onPress={onClose} />
+      <TouchableOpacity style={styles.overlayClose} onPress={onClose} activeOpacity={1} />
 
       <StatusModal
         visible={statusModal.visible}
@@ -215,25 +217,21 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 9999,
     elevation: 9999,
-    backgroundColor: colors.overlay,
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
     flexDirection: 'row',
   },
   sidebar: {
     height: '100%',
-    backgroundColor: colors.surface,
-    elevation: 10000,
-    shadowColor: '#000',
-    shadowOffset: { width: 4, height: 0 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
+    backgroundColor: '#FFFFFF',
+    elevation: 24,
   },
   profileSection: {
     marginHorizontal: 12,
-    marginBottom: 8,
+    marginBottom: 10,
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 16,
-    backgroundColor: colors.brand,
+    backgroundColor: '#0B4D26',
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -248,6 +246,7 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 10,
     marginRight: 8,
+    minWidth: 0,
   },
   greeting: {
     fontSize: 11,
@@ -257,43 +256,42 @@ const styles = StyleSheet.create({
   name: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#fff',
+    color: '#FFFFFF',
     marginTop: 1,
   },
   closeBtn: {
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
   sectionLabel: {
-    marginTop: 4,
-    marginBottom: 6,
+    marginTop: 2,
+    marginBottom: 8,
     marginLeft: 18,
     fontSize: 11,
     fontWeight: '800',
     color: '#9CA3AF',
-    letterSpacing: 0.7,
-    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  menuScroll: {
+    flex: 1,
   },
   menuList: {
     paddingHorizontal: 12,
-    width: '100%',
-  },
-  spacer: {
-    flex: 1,
+    paddingBottom: 8,
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'stretch',
     width: '100%',
-    paddingVertical: 11,
+    minHeight: 52,
+    paddingVertical: 10,
     paddingHorizontal: 10,
     borderRadius: 14,
-    marginBottom: 6,
+    marginBottom: 8,
     backgroundColor: '#F3F4F6',
   },
   menuItemActive: {
@@ -301,14 +299,11 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#0B4D26',
   },
-  menuItemPressed: {
-    backgroundColor: '#E5E7EB',
-  },
   iconWrap: {
     width: 34,
     height: 34,
     borderRadius: 10,
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -316,13 +311,16 @@ const styles = StyleSheet.create({
   iconWrapActive: {
     backgroundColor: '#0B4D26',
   },
+  menuLabelWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    minWidth: 80,
+    paddingRight: 8,
+  },
   menuText: {
-    flexGrow: 1,
-    flexShrink: 1,
-    color: '#1F2937',
+    color: '#111827',
     fontSize: 15,
     fontWeight: '700',
-    includeFontPadding: false,
   },
   menuTextActive: {
     color: '#0B4D26',
@@ -330,10 +328,10 @@ const styles = StyleSheet.create({
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'stretch',
     marginHorizontal: 12,
-    marginTop: 8,
-    paddingVertical: 12,
+    marginTop: 4,
+    minHeight: 52,
+    paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 14,
     backgroundColor: '#FEF2F2',
@@ -342,7 +340,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 10,
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,

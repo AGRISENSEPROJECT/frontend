@@ -88,12 +88,14 @@ export const authApi = {
         commentPost: (id: string) => `/api/community/posts/${id}/comment`,
         deletePost: (id: string) => `/api/community/posts/${id}`,
         updatePost: (id: string) => `/api/community/posts/${id}`,
+        updateComment: (id: string) => `/api/community/comments/${id}`,
         deleteComment: (id: string) => `/api/community/comments/${id}`,
         searchUsers: '/api/community/users',
         conversations: '/api/community/conversations',
         directConversation: '/api/community/conversations/direct',
         groupConversation: '/api/community/conversations/group',
         conversationById: (id: string) => `/api/community/conversations/${id}`,
+        conversationImage: (id: string) => `/api/community/conversations/${id}/image`,
         conversationMessages: (id: string) => `/api/community/conversations/${id}/messages`,
         conversationRead: (id: string) => `/api/community/conversations/${id}/read`,
         communityPresence: '/api/community/presence',
@@ -418,6 +420,13 @@ export const authApi = {
         });
     },
 
+    updateComment: async (commentId: string, content: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.updateComment(commentId), {
+            method: 'PATCH',
+            body: JSON.stringify({ content }),
+        });
+    },
+
     searchCommunityUsers: async (q?: string): Promise<any[]> => {
         const qs = q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : '';
         return await authenticatedFetch(`${authApi.endpoints.searchUsers}${qs}`, {
@@ -443,6 +452,39 @@ export const authApi = {
         return await authenticatedFetch(authApi.endpoints.groupConversation, {
             method: 'POST',
             body: JSON.stringify({ name, memberIds }),
+        });
+    },
+
+    renameGroupConversation: async (id: string, name: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.conversationById(id), {
+            method: 'PATCH',
+            body: JSON.stringify({ name }),
+        });
+    },
+
+    uploadGroupImage: async (id: string, imageUri: string): Promise<any> => {
+        const formData = new FormData();
+        const rawName = imageUri.split('?')[0].split('/').pop() || `group-${Date.now()}.jpg`;
+        const filename = rawName.includes('.') ? rawName : `${rawName}.jpg`;
+        const match = /\.(\w+)$/.exec(filename);
+        const ext = (match?.[1] || 'jpeg').toLowerCase();
+        const type = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
+
+        if (typeof document !== 'undefined') {
+            const response = await fetch(imageUri);
+            const blob = await response.blob();
+            formData.append('image', blob, filename);
+        } else {
+            formData.append('image', {
+                uri: imageUri,
+                name: filename,
+                type,
+            } as any);
+        }
+
+        return await authenticatedFetch(authApi.endpoints.conversationImage(id), {
+            method: 'POST',
+            body: formData,
         });
     },
 
@@ -475,6 +517,12 @@ export const authApi = {
 
     markConversationRead: async (id: string): Promise<any> => {
         return await authenticatedFetch(authApi.endpoints.conversationRead(id), {
+            method: 'POST',
+        });
+    },
+
+    leaveConversation: async (id: string): Promise<any> => {
+        return await authenticatedFetch(`${authApi.endpoints.conversationById(id)}/leave`, {
             method: 'POST',
         });
     },

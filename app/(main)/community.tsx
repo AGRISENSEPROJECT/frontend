@@ -80,6 +80,7 @@ type Conversation = {
   id: string;
   type: 'direct' | 'group';
   name: string;
+  imageUrl?: string | null;
   lastMessage?: { content: string; createdAt: string; sender?: Author | null } | null;
   unreadCount?: number;
   otherMembers?: Author[];
@@ -109,6 +110,7 @@ export default function Community() {
   const [commentModalVisible, setCommentModalVisible] = useState(false);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [commentContent, setCommentContent] = useState('');
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [postDescription, setPostDescription] = useState('');
   const [postTitle, setPostTitle] = useState('');
   const [postImageUri, setPostImageUri] = useState<string | null>(null);
@@ -207,6 +209,7 @@ export default function Community() {
 
   useEffect(() => {
     if (params.tab === 'messages') setCommunityTab('Inbox');
+    if (params.tab === 'groups') setCommunityTab('Group');
   }, [params.tab]);
 
   const openPostDetail = useCallback((post: Post) => {
@@ -293,6 +296,7 @@ export default function Community() {
     let onUnliked: ((payload: any) => void) | null = null;
     let onCommented: ((comment: any) => void) | null = null;
     let onConversationUpdated: (() => void) | null = null;
+    let onMessageNew: ((message: any) => void) | null = null;
 
     (async () => {
       try {
@@ -361,6 +365,13 @@ export default function Community() {
           if (communityTab === 'Group') fetchConversations('group');
           refreshUnreadBadges();
         };
+        // Live WhatsApp-style tab badges when a DM/group message arrives
+        onMessageNew = (message: any) => {
+          if (!message || message.sender?.id === userData?.id) return;
+          refreshUnreadBadges();
+          if (communityTab === 'Inbox') fetchConversations('direct');
+          if (communityTab === 'Group') fetchConversations('group');
+        };
 
         sock.on('post:created', onCreated);
         sock.on('post:deleted', onDeleted);
@@ -368,6 +379,7 @@ export default function Community() {
         sock.on('post:unliked', onUnliked);
         sock.on('post:commented', onCommented);
         sock.on('conversation:updated', onConversationUpdated);
+        sock.on('message:new', onMessageNew);
       } catch (error) {
         console.warn('Community socket unavailable', error);
       }
@@ -384,6 +396,7 @@ export default function Community() {
           if (onUnliked) sock.off('post:unliked', onUnliked);
           if (onCommented) sock.off('post:commented', onCommented);
           if (onConversationUpdated) sock.off('conversation:updated', onConversationUpdated);
+          if (onMessageNew) sock.off('message:new', onMessageNew);
         })
         .catch(() => undefined);
     };
@@ -412,40 +425,139 @@ export default function Community() {
     if (!selectedPost || !commentContent.trim()) return;
     setLoading(true);
     try {
-      const comment = await authApi.commentPost(selectedPost.id, commentContent.trim());
-      setCommentContent('');
-      setSelectedPost((prev) =>
-        prev
-          ? {
-              ...prev,
-              comments: prev.comments.some((c) => c.id === comment.id)
-                ? prev.comments
-                : [...prev.comments, comment],
-            }
-          : prev,
-      );
-      setPosts((prev) =>
-        prev.map((p) =>
-          p.id === selectedPost.id
+      if (editingCommentId) {
+        const updated = await authApi.updateComment(
+          editingCommentId,
+          commentContent.trim(),
+        );
+        const patchComments = (comments: Post['comments']) =>
+          comments.map((c) =>
+            c.id === editingCommentId
+              ? { ...c, content: updated.content || commentContent.trim() }
+              : c,
+          );
+        setSelectedPost((prev) =>
+          prev ? { ...prev, comments: patchComments(prev.comments) } : prev,
+        );
+        setPosts((prev) =>
+          prev.map((p) =>
+            p.id === selectedPost.id
+              ? { ...p, comments: patchComments(p.comments) }
+              : p,
+          ),
+        );
+        setEditingCommentId(null);
+        setCommentContent('');
+      } else {
+        const comment = await authApi.commentPost(
+          selectedPost.id,
+          commentContent.trim(),
+        );
+        setCommentContent('');
+        setSelectedPost((prev) =>
+          prev
             ? {
-                ...p,
-                comments: p.comments.some((c) => c.id === comment.id)
-                  ? p.comments
-                  : [...p.comments, comment],
+                ...prev,
+                comments: prev.comments.some((c) => c.id === comment.id)
+                  ? prev.comments
+                  : [...prev.comments, comment],
+                commentCount: (prev.commentCount || prev.comments.length) + 1,
               }
-            : p,
-        ),
-      );
+            : prev,
+        );
+        setPosts((prev) =>
+          prev.map((p) =>
+            p.id === selectedPost.id
+              ? {
+                  ...p,
+                  comments: p.comments.some((c) => c.id === comment.id)
+                    ? p.comments
+                    : [...p.comments, comment],
+                  commentCount: (p.commentCount || p.comments.length) + 1,
+                }
+              : p,
+          ),
+        );
+      }
     } catch (error: any) {
       setStatusModal({
         visible: true,
         type: 'error',
-        title: 'Comment Failed',
-        message: error.message || 'Could not add comment',
+        title: editingCommentId ? 'Edit Failed' : 'Comment Failed',
+        message: error.message || 'Could not save comment',
       });
     } finally {
       setLoading(false);
     }
+  };
+
+  const startEditComment = (comment: {
+    id: string;
+    content: string;
+  }) => {
+    setEditingCommentId(comment.id);
+    setCommentContent(comment.content);
+  };
+
+  const cancelEditComment = () => {
+    setEditingCommentId(null);
+    setCommentContent('');
+  };
+
+  const deleteOwnComment = (commentId: string) => {
+    if (!selectedPost) return;
+    const run = async () => {
+      try {
+        await authApi.deleteComment(commentId);
+        const strip = (comments: Post['comments']) =>
+          comments.filter((c) => c.id !== commentId);
+        setSelectedPost((prev) =>
+          prev
+            ? {
+                ...prev,
+                comments: strip(prev.comments),
+                commentCount: Math.max(
+                  0,
+                  (prev.commentCount || prev.comments.length) - 1,
+                ),
+              }
+            : prev,
+        );
+        setPosts((prev) =>
+          prev.map((p) =>
+            p.id === selectedPost.id
+              ? {
+                  ...p,
+                  comments: strip(p.comments),
+                  commentCount: Math.max(
+                    0,
+                    (p.commentCount || p.comments.length) - 1,
+                  ),
+                }
+              : p,
+          ),
+        );
+        if (editingCommentId === commentId) cancelEditComment();
+      } catch (error: any) {
+        setStatusModal({
+          visible: true,
+          type: 'error',
+          title: 'Delete failed',
+          message: error.message || 'Could not delete comment',
+        });
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.confirm('Delete this comment?')) {
+        run();
+      }
+      return;
+    }
+    Alert.alert('Delete comment?', 'This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: run },
+    ]);
   };
 
   const pickPostImage = async () => {
@@ -1196,20 +1308,44 @@ export default function Community() {
               )}
               <Text style={styles.commentsSectionLabel}>Comments</Text>
               {selectedPost?.comments?.length ? (
-                selectedPost.comments.map((c) => (
+                selectedPost.comments.map((c) => {
+                  const mine =
+                    (c.author?.id || c.user?.id) === userData?.id;
+                  return (
                   <View key={c.id} style={styles.commentItem}>
                     <Image
                       source={avatar(c.author?.profileImage || c.user?.profileImage)}
                       style={styles.commentProfilePic}
                     />
                     <View style={styles.commentContentContainer}>
-                      <Text style={styles.commentAuthor}>
-                        {c.author?.username || c.user?.username || 'Farmer'}
-                      </Text>
+                      <View style={styles.commentTopRow}>
+                        <Text style={styles.commentAuthor}>
+                          {c.author?.username || c.user?.username || 'Farmer'}
+                        </Text>
+                        {mine ? (
+                          <View style={styles.commentActions}>
+                            <TouchableOpacity
+                              onPress={() => startEditComment(c)}
+                              hitSlop={8}
+                              accessibilityLabel="Edit comment"
+                            >
+                              <Ionicons name="create-outline" size={16} color="#166534" />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => deleteOwnComment(c.id)}
+                              hitSlop={8}
+                              accessibilityLabel="Delete comment"
+                            >
+                              <Ionicons name="trash-outline" size={16} color="#DC2626" />
+                            </TouchableOpacity>
+                          </View>
+                        ) : null}
+                      </View>
                       <Text style={styles.commentText}>{c.content}</Text>
                     </View>
                   </View>
-                ))
+                  );
+                })
               ) : (
                 <View style={styles.emptyComments}>
                   <Text style={styles.emptyCommentsText}>No comments yet. Be the first!</Text>
@@ -1217,9 +1353,14 @@ export default function Community() {
               )}
             </ScrollView>
             <View style={styles.commentInputContainer}>
+              {editingCommentId ? (
+                <TouchableOpacity onPress={cancelEditComment} style={styles.editCancelChip}>
+                  <Text style={styles.editCancelText}>Cancel edit</Text>
+                </TouchableOpacity>
+              ) : null}
               <TextInput
                 style={styles.commentInput}
-                placeholder="Add a comment..."
+                placeholder={editingCommentId ? 'Edit your comment...' : 'Add a comment...'}
                 placeholderTextColor="#999"
                 value={commentContent}
                 onChangeText={setCommentContent}
@@ -1229,7 +1370,7 @@ export default function Community() {
                 disabled={loading || !commentContent.trim()}
               >
                 <Ionicons
-                  name="send"
+                  name={editingCommentId ? 'checkmark-circle' : 'send'}
                   size={22}
                   color={commentContent.trim() ? '#166534' : '#ccc'}
                 />
@@ -1854,8 +1995,26 @@ const styles = StyleSheet.create({
   commentItem: { flexDirection: 'row', marginBottom: 16, gap: 10 },
   commentProfilePic: { width: 32, height: 32, borderRadius: 16 },
   commentContentContainer: { flex: 1 },
-  commentAuthor: { fontWeight: 'bold', fontSize: 13, marginBottom: 2 },
+  commentTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 2,
+  },
+  commentAuthor: { fontWeight: 'bold', fontSize: 13, flex: 1 },
+  commentActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   commentText: { fontSize: 14, color: '#333' },
+  editCancelChip: {
+    position: 'absolute',
+    top: -28,
+    left: 12,
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  editCancelText: { color: '#166534', fontWeight: '700', fontSize: 12 },
   commentInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
