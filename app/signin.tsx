@@ -8,6 +8,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authApi, userHasFarm } from '@/services/api';
 import StatusModal from '@/components/ui/StatusModal';
 import ENV from '@/config/env';
+import { isFarmerRole } from '@/utils/userDisplay';
+
+const PHONE_RE = /^\+?[1-9]\d{1,14}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function SignIn() {
     const router = useRouter();
@@ -19,24 +23,33 @@ export default function SignIn() {
         message: '',
     });
     const [formData, setFormData] = useState({
-        email: '',
+        identifier: '',
         password: '',
     });
     const [errors, setErrors] = useState({
-        email: '',
+        identifier: '',
         password: '',
     });
     const [showPassword, setShowPassword] = useState(false);
 
     const validateForm = () => {
+        const id = formData.identifier.trim();
+        let identifierError = '';
+        if (!id) {
+            identifierError = 'Email or phone number is required';
+        } else if (id.includes('@')) {
+            if (!EMAIL_RE.test(id)) identifierError = 'Invalid email format';
+        } else if (!PHONE_RE.test(id)) {
+            identifierError = 'Use international phone format, e.g. +250788123456';
+        }
+
         const newErrors = {
-            email: !formData.email ? 'Email is required' :
-                !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email) ? 'Invalid email format' : '',
+            identifier: identifierError,
             password: !formData.password ? 'Password is required' : '',
         };
 
         setErrors(newErrors);
-        return Object.values(newErrors).every(error => error === '');
+        return Object.values(newErrors).every((error) => error === '');
     };
 
     const handleSignIn = async () => {
@@ -44,21 +57,34 @@ export default function SignIn() {
 
         setLoading(true);
         try {
-            const data = await authApi.signin({
-                email: formData.email,
-                password: formData.password,
-            });
+            const id = formData.identifier.trim();
+            const payload = id.includes('@')
+                ? { email: id, password: formData.password }
+                : { phoneNumber: id, password: formData.password };
 
-            console.log('Login success:', data);
+            const data = await authApi.signin(payload);
 
             // Handle unverified email response schema
             if (data.isEmailVerified === false) {
-                router.push(`/verifyEmail?email=${encodeURIComponent(data.email)}&userId=${data.userId}`);
+                router.push(
+                    `/verifyEmail?email=${encodeURIComponent(data.email || (id.includes('@') ? id : ''))}&userId=${data.userId}`,
+                );
                 return;
             }
 
             // Store token and user info for verified users
-            if (data.access_token) {
+            if (data.access_token && data.user) {
+                if (!isFarmerRole(data.user.role)) {
+                    setStatusModal({
+                        visible: true,
+                        type: 'info',
+                        title: 'Farmer app only',
+                        message:
+                            'This mobile app is for farmer accounts. Please use the web portal for your role.',
+                    });
+                    return;
+                }
+
                 await AsyncStorage.setItem('token', data.access_token);
                 if (data.refresh_token) {
                     await AsyncStorage.setItem('refreshToken', data.refresh_token);
@@ -68,7 +94,6 @@ export default function SignIn() {
                     await AsyncStorage.setItem('api_url_bound', ENV.API_URL);
                 }
 
-                // Navigate based on user state
                 if (userHasFarm(data.user)) {
                     router.push('/(main)/dashboard');
                 } else {
@@ -76,7 +101,6 @@ export default function SignIn() {
                 }
             }
         } catch (error: any) {
-            // Professional status modal instead of alert
             setStatusModal({
                 visible: true,
                 type: 'error',
@@ -122,13 +146,16 @@ export default function SignIn() {
                 <View className="space-y-6 mt-8">
                     <View>
                         <TextInput
-                            placeholder="Email address"
-                            value={formData.email}
-                            onChangeText={(text) => setFormData({ ...formData, email: text })}
-                            className={`bg-gray-100 mb-4 p-4 rounded-lg ${errors.email ? 'border-red-500 border' : ''}`}
+                            placeholder="Email or phone (+250...)"
+                            value={formData.identifier}
+                            onChangeText={(text) => setFormData({ ...formData, identifier: text })}
+                            className={`bg-gray-100 mb-4 p-4 rounded-lg ${errors.identifier ? 'border-red-500 border' : ''}`}
                             keyboardType="email-address"
+                            autoCapitalize="none"
                         />
-                        {errors.email ? <Text className="text-red-500 text-sm mt-1">{errors.email}</Text> : null}
+                        {errors.identifier ? (
+                            <Text className="text-red-500 text-sm mt-1">{errors.identifier}</Text>
+                        ) : null}
                     </View>
 
                     <View className="relative">

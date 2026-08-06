@@ -10,6 +10,7 @@ import * as Location from 'expo-location';
 import { authApi } from '@/services/api';
 import { COUNTRIES, PROVINCES, DISTRICTS, SOIL_TYPES, SECTORS, CELLS, VILLAGES } from '@/constants/LocationData';
 import StatusModal from '@/components/ui/StatusModal';
+import { userDisplayName } from '@/utils/userDisplay';
 
 export default function RegisterFarm() {
     const router = useRouter();
@@ -57,7 +58,7 @@ export default function RegisterFarm() {
                 // Auto-fill owner details from user profile
                 setFormData(prev => ({
                     ...prev,
-                    ownerName: user.username || '',
+                    ownerName: userDisplayName(user),
                     emailAddress: user.email || ''
                 }));
 
@@ -218,6 +219,7 @@ export default function RegisterFarm() {
             if (userJson) {
                 const user = JSON.parse(userJson);
                 user.hasFarm = true;
+                user.farmsCount = Math.max(1, Number(user.farmsCount) || 0);
                 await AsyncStorage.setItem('user', JSON.stringify(user));
             }
 

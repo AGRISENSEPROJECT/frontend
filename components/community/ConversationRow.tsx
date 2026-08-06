@@ -2,12 +2,9 @@ import React from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radius, space } from '@/constants/theme';
+import type { CommunityAuthor } from '@/services/api';
 
-type Author = {
-  id: string;
-  username: string;
-  profileImage?: string | null;
-};
+type Author = CommunityAuthor;
 
 export type ConversationRowData = {
   id: string;

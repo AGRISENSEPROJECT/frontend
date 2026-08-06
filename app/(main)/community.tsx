@@ -28,6 +28,8 @@ import StatusModal from '@/components/ui/StatusModal';
 import ConversationRow from '@/components/community/ConversationRow';
 import { colors, radius, shadow, space } from '@/constants/theme';
 import { usePresence } from '@/context/PresenceContext';
+import { userDisplayName } from '@/utils/userDisplay';
+import type { CommunityAuthor } from '@/services/api';
 import {
   FeedPostSkeleton,
   ConversationSkeleton,
@@ -62,12 +64,7 @@ function postCoverSource(post: { id: string; imageUrl?: string | null }) {
   return placeholderForPost(post.id || 'x');
 }
 
-type Author = {
-  id: string;
-  username: string;
-  profileImage?: string | null;
-  online?: boolean;
-};
+type Author = CommunityAuthor;
 
 type Post = {
   id: string;
@@ -1059,7 +1056,7 @@ export default function Community() {
                       />
                       <View style={styles.authorMeta}>
                         <Text style={styles.authorName}>
-                          {post.author?.username || 'Farmer'}
+                          {userDisplayName(post.author)}
                         </Text>
                         <Text style={styles.timeAgo}>{timeAgo(post.createdAt)}</Text>
                       </View>
@@ -1150,7 +1147,7 @@ export default function Community() {
                     )}
                     <Text style={styles.postContent} numberOfLines={3}>
                       <Text style={styles.captionAuthor}>
-                        {post.author?.username || 'Farmer'}{' '}
+                        {userDisplayName(post.author)}{' '}
                       </Text>
                       {post.description}
                     </Text>
@@ -1374,7 +1371,7 @@ export default function Community() {
                     />
                     <View>
                       <Text style={styles.authorName}>
-                        {selectedPost.author?.username || 'Farmer'}
+                        {userDisplayName(selectedPost.author)}
                       </Text>
                       <Text style={styles.timeAgo}>{timeAgo(selectedPost.createdAt)}</Text>
                     </View>
@@ -1412,7 +1409,7 @@ export default function Community() {
                     <View style={styles.commentContentContainer}>
                       <View style={styles.commentTopRow}>
                         <Text style={styles.commentAuthor}>
-                          {c.author?.username || c.user?.username || 'Farmer'}
+                          {userDisplayName(c.author || c.user)}
                         </Text>
                         {mine ? (
                           <View style={styles.commentActions}>
@@ -1485,7 +1482,7 @@ export default function Community() {
             <View style={styles.modalBody}>
               <TextInput
                 style={styles.searchInputModal}
-                placeholder="Search username..."
+                placeholder="Search farmers..."
                 value={userQuery}
                 onChangeText={searchUsers}
                 placeholderTextColor="#999"
@@ -1504,7 +1501,7 @@ export default function Community() {
                       ) : null}
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.authorName}>{u.username}</Text>
+                      <Text style={styles.authorName}>{userDisplayName(u)}</Text>
                       <Text style={styles.userPresenceText}>
                         {isOnline(u.id) || (u as any).online ? 'Active now' : 'Offline'}
                       </Text>
@@ -1552,7 +1549,7 @@ export default function Community() {
                       onPress={() => toggleMember(u.id)}
                     >
                       <Image source={avatar(u.profileImage)} style={styles.profilePic} />
-                      <Text style={[styles.authorName, { flex: 1 }]}>{u.username}</Text>
+                      <Text style={[styles.authorName, { flex: 1 }]}>{userDisplayName(u)}</Text>
                       <Ionicons
                         name={selected ? 'checkbox' : 'square-outline'}
                         size={22}

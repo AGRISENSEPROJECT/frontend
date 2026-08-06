@@ -19,6 +19,8 @@ import { authApi } from '@/services/api';
 import StatusModal from '@/components/ui/StatusModal';
 import { useSidebar } from '@/context/SidebarContext';
 import { SettingsSkeleton } from '@/components/ui/Skeleton';
+import { userDisplayName } from '@/utils/userDisplay';
+import { PASSWORD_HINT, validateStrongPassword } from '@/utils/password';
 
 export default function Settings() {
     const router = useRouter();
@@ -34,7 +36,8 @@ export default function Settings() {
         message: '',
     });
 
-    const [username, setUsername] = useState('');
+    const [firstName, setFirstName] = useState('');
+    const [lastName, setLastName] = useState('');
     const [email, setEmail] = useState('');
     const [phoneNumber, setPhoneNumber] = useState('');
     const [currentPassword, setCurrentPassword] = useState('');
@@ -44,14 +47,10 @@ export default function Settings() {
     const applyUserToForm = (user: any) => {
         if (!user) return;
         setUserData(user);
-        setUsername(user.username || '');
+        setFirstName(user.firstName || '');
+        setLastName(user.lastName || '');
         setEmail(user.email || '');
-        // Backend field is phoneNumber; accept a few aliases just in case
-        const phone =
-            user.phoneNumber ??
-            user.phone ??
-            user.phone_number ??
-            '';
+        const phone = user.phoneNumber ?? user.phone ?? user.phone_number ?? '';
         setPhoneNumber(phone == null ? '' : String(phone));
     };
 
@@ -89,8 +88,12 @@ export default function Settings() {
     };
 
     const handleUpdateProfile = async () => {
-        if (!username.trim()) {
-            showStatus('info', 'Required', 'Username is required');
+        if (!firstName.trim()) {
+            showStatus('info', 'Required', 'First name is required');
+            return;
+        }
+        if (phoneNumber.trim() && !/^\+?[1-9]\d{1,14}$/.test(phoneNumber.trim())) {
+            showStatus('info', 'Invalid phone', 'Use international format, e.g. +250788123456');
             return;
         }
 
@@ -101,14 +104,28 @@ export default function Settings() {
 
             const result = await authApi.updateProfile(
                 {
-                    username: username.trim(),
+                    firstName: firstName.trim(),
+                    lastName: lastName.trim(),
                     phoneNumber: phoneNumber.trim(),
                 },
                 token,
             );
             if (result?.user) {
-                applyUserToForm(result.user);
-                await AsyncStorage.setItem('user', JSON.stringify(result.user));
+                // Update response is a subset — merge into cached profile
+                const merged = {
+                    ...userData,
+                    ...result.user,
+                    displayName: userDisplayName({
+                        ...userData,
+                        ...result.user,
+                    }),
+                    username: userDisplayName({
+                        ...userData,
+                        ...result.user,
+                    }),
+                };
+                applyUserToForm(merged);
+                await AsyncStorage.setItem('user', JSON.stringify(merged));
             } else {
                 await loadProfile();
             }
@@ -128,6 +145,12 @@ export default function Settings() {
 
         if (newPassword !== confirmPassword) {
             showStatus('error', 'Error', 'Passwords do not match');
+            return;
+        }
+
+        const passwordError = validateStrongPassword(newPassword);
+        if (passwordError) {
+            showStatus('error', 'Weak password', passwordError || PASSWORD_HINT);
             return;
         }
 
@@ -297,13 +320,26 @@ export default function Settings() {
                     </View>
 
                     <View style={styles.inputGroup}>
-                        <Text style={styles.label}>Username</Text>
+                        <Text style={styles.label}>First name</Text>
                         <TextInput
                             style={styles.input}
-                            value={username}
-                            onChangeText={setUsername}
-                            placeholder="Enter username"
-                            autoCapitalize="none"
+                            value={firstName}
+                            onChangeText={setFirstName}
+                            placeholder="Enter first name"
+                            autoCapitalize="words"
+                        />
+                    </View>
+
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.label}>
+                            Last name <Text style={styles.optional}>(optional)</Text>
+                        </Text>
+                        <TextInput
+                            style={styles.input}
+                            value={lastName}
+                            onChangeText={setLastName}
+                            placeholder="Enter last name"
+                            autoCapitalize="words"
                         />
                     </View>
 

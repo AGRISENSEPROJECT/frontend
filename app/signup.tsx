@@ -1,11 +1,11 @@
-import { View, Text, TextInput, TouchableOpacity, Image, ScrollView, Modal } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Ionicons, AntDesign } from '@expo/vector-icons';
-import { authApi, type SignupData } from '@/services/api';
+import { authApi } from '@/services/api';
 import StatusModal from '@/components/ui/StatusModal';
-
+import { validateStrongPassword } from '@/utils/password';
 
 export default function Signup() {
     const router = useRouter();
@@ -17,17 +17,21 @@ export default function Signup() {
     });
     const [formData, setFormData] = useState({
         email: '',
-        username: '',
+        firstName: '',
+        lastName: '',
+        phoneNumber: '',
         password: '',
-        confirmPassword: ''
+        confirmPassword: '',
     });
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [errors, setErrors] = useState({
         email: '',
-        username: '',
+        firstName: '',
+        lastName: '',
+        phoneNumber: '',
         password: '',
-        confirmPassword: ''
+        confirmPassword: '',
     });
     const [agreeToTerms, setAgreeToTerms] = useState(false);
     const [modalVisible, setModalVisible] = useState(false);
@@ -39,33 +43,37 @@ export default function Signup() {
         return '';
     };
 
-    const validatePassword = (password: string) => {
-        if (!password) return 'Password is required';
-        if (password.length < 8) return 'Password must be at least 8 characters';
-        if (!/[A-Z]/.test(password)) return 'Password must contain at least one uppercase letter';
-        if (!/[a-z]/.test(password)) return 'Password must contain at least one lowercase letter';
-        if (!/[0-9]/.test(password)) return 'Password must contain at least one number';
+    const validatePassword = (password: string) => validateStrongPassword(password);
+
+    const validateName = (value: string, label: string, required = true) => {
+        if (!value.trim()) return required ? `${label} is required` : '';
+        if (value.trim().length < 1) return `${label} is required`;
         return '';
     };
 
-    const validateUsername = (username: string) => {
-        if (!username) return 'Username is required';
-        if (username.length < 3) return 'Username must be at least 3 characters';
-        if (!/^[a-zA-Z0-9_]+$/.test(username)) return 'Username can only contain letters, numbers, and underscores';
+    const validatePhone = (phone: string) => {
+        if (!phone.trim()) return '';
+        if (!/^\+?[1-9]\d{1,14}$/.test(phone.trim())) {
+            return 'Use international format, e.g. +250788123456';
+        }
         return '';
     };
 
     const validateForm = () => {
         const newErrors = {
             email: validateEmail(formData.email),
-            username: validateUsername(formData.username),
+            firstName: validateName(formData.firstName, 'First name'),
+            lastName: validateName(formData.lastName, 'Last name', false),
+            phoneNumber: validatePhone(formData.phoneNumber),
             password: validatePassword(formData.password),
-            confirmPassword: formData.password !== formData.confirmPassword ? 'Passwords do not match' : '',
+            confirmPassword:
+                formData.password !== formData.confirmPassword ? 'Passwords do not match' : '',
         };
 
         setErrors(newErrors);
-        return !Object.values(newErrors).some(error => error !== '');
+        return !Object.values(newErrors).some((error) => error !== '');
     };
+
     const handleSignup = async () => {
         if (!validateForm()) return;
         if (!agreeToTerms) {
@@ -79,18 +87,20 @@ export default function Signup() {
         }
 
         try {
-            const data = await authApi.signup({
-                email: formData.email,
-                username: formData.username,
-                password: formData.password
-            });
+            const payload: Parameters<typeof authApi.signup>[0] = {
+                email: formData.email.trim(),
+                password: formData.password,
+                firstName: formData.firstName.trim(),
+            };
+            if (formData.lastName.trim()) payload.lastName = formData.lastName.trim();
+            if (formData.phoneNumber.trim()) payload.phoneNumber = formData.phoneNumber.trim();
 
-            console.log('Signup success:', data);
+            const data = await authApi.signup(payload);
 
-            // Navigate to verify email
-            router.push(`/verifyEmail?email=${encodeURIComponent(formData.email)}&userId=${data.userId}`);
+            router.push(
+                `/verifyEmail?email=${encodeURIComponent(formData.email.trim())}&userId=${data.userId}`,
+            );
         } catch (error: any) {
-            console.error(error);
             setStatusModal({
                 visible: true,
                 type: 'error',
@@ -111,18 +121,14 @@ export default function Signup() {
     return (
         <SafeAreaView className="flex-1 bg-white">
             <ScrollView className="flex-1 px-4">
-                <TouchableOpacity
-                    onPress={handleBackPress}
-                    className="mt-2 p-2"
-                >
+                <TouchableOpacity onPress={handleBackPress} className="mt-2 p-2">
                     <Ionicons name="arrow-back" size={24} color="#000" />
                 </TouchableOpacity>
 
                 <View className="mt-4">
-                    <Text className="text-2xl font-bold">Create a new account</Text>
+                    <Text className="text-2xl font-bold">Create a farmer account</Text>
                     <Text className="text-gray-500 mt-2">
-                        Creating an account is quick and easy. With your personal account,
-                        you'll unlock access to all the features and benefits tailored just for you.
+                        Sign up to access soil analysis, recommendations, community, and farm tools.
                     </Text>
                 </View>
 
@@ -134,18 +140,48 @@ export default function Signup() {
                             onChangeText={(text) => setFormData({ ...formData, email: text })}
                             className="bg-gray-100 p-4 mb-4 rounded-lg"
                             keyboardType="email-address"
+                            autoCapitalize="none"
                         />
                         {errors.email ? <Text className="text-red-500 text-sm mt-1">{errors.email}</Text> : null}
                     </View>
 
                     <View>
                         <TextInput
-                            placeholder="Username"
-                            value={formData.username}
-                            onChangeText={(text) => setFormData({ ...formData, username: text })}
+                            placeholder="First name"
+                            value={formData.firstName}
+                            onChangeText={(text) => setFormData({ ...formData, firstName: text })}
                             className="bg-gray-100 mb-4 p-4 rounded-lg"
+                            autoCapitalize="words"
                         />
-                        {errors.username ? <Text className="text-red-500 text-sm mt-1">{errors.username}</Text> : null}
+                        {errors.firstName ? (
+                            <Text className="text-red-500 text-sm mt-1">{errors.firstName}</Text>
+                        ) : null}
+                    </View>
+
+                    <View>
+                        <TextInput
+                            placeholder="Last name (optional)"
+                            value={formData.lastName}
+                            onChangeText={(text) => setFormData({ ...formData, lastName: text })}
+                            className="bg-gray-100 mb-4 p-4 rounded-lg"
+                            autoCapitalize="words"
+                        />
+                        {errors.lastName ? (
+                            <Text className="text-red-500 text-sm mt-1">{errors.lastName}</Text>
+                        ) : null}
+                    </View>
+
+                    <View>
+                        <TextInput
+                            placeholder="Phone (optional) e.g. +250788123456"
+                            value={formData.phoneNumber}
+                            onChangeText={(text) => setFormData({ ...formData, phoneNumber: text })}
+                            className="bg-gray-100 mb-4 p-4 rounded-lg"
+                            keyboardType="phone-pad"
+                        />
+                        {errors.phoneNumber ? (
+                            <Text className="text-red-500 text-sm mt-1">{errors.phoneNumber}</Text>
+                        ) : null}
                     </View>
 
                     <View className="relative">
@@ -160,9 +196,11 @@ export default function Signup() {
                             onPress={() => setShowPassword(!showPassword)}
                             className="absolute right-4 top-4"
                         >
-                            <Ionicons name={showPassword ? "eye-off" : "eye"} size={24} color="gray" />
+                            <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={24} color="gray" />
                         </TouchableOpacity>
-                        {errors.password ? <Text className="text-red-500 text-sm mt-1">{errors.password}</Text> : null}
+                        {errors.password ? (
+                            <Text className="text-red-500 text-sm mt-1">{errors.password}</Text>
+                        ) : null}
                     </View>
 
                     <View className="relative">
@@ -177,9 +215,15 @@ export default function Signup() {
                             onPress={() => setShowConfirmPassword(!showConfirmPassword)}
                             className="absolute right-4 top-4"
                         >
-                            <Ionicons name={showConfirmPassword ? "eye-off" : "eye"} size={24} color="gray" />
+                            <Ionicons
+                                name={showConfirmPassword ? 'eye-off' : 'eye'}
+                                size={24}
+                                color="gray"
+                            />
                         </TouchableOpacity>
-                        {errors.confirmPassword ? <Text className="text-red-500 text-sm mt-1">{errors.confirmPassword}</Text> : null}
+                        {errors.confirmPassword ? (
+                            <Text className="text-red-500 text-sm mt-1">{errors.confirmPassword}</Text>
+                        ) : null}
                     </View>
 
                     <View className="flex-row items-center mt-4">
@@ -187,26 +231,22 @@ export default function Signup() {
                             onPress={() => setModalVisible(true)}
                             className="flex-row items-center"
                         >
-                            <View className={`w-5 h-5 border rounded mr-2 ${agreeToTerms ? 'bg-[#0B4D26] border-[#0B4D26]' : 'border-gray-300'}`}>
+                            <View
+                                className={`w-5 h-5 border rounded mr-2 ${
+                                    agreeToTerms ? 'bg-[#0B4D26] border-[#0B4D26]' : 'border-gray-300'
+                                }`}
+                            >
                                 {agreeToTerms && <Ionicons name="checkmark" size={18} color="white" />}
                             </View>
                         </TouchableOpacity>
                         <Text className="text-sm text-gray-600">
-                            I agree to the{' '}
-                            <Text className="text-[#0B4D26]">Terms</Text> and{' '}
-                            <Text className="text-[#0B4D26]">Conditions</Text> provided and confirm that
-                            I have read and understood the{' '}
-                            <Text className="text-[#0B4D26]">Privacy Policy</Text>
+                            I agree to the <Text className="text-[#0B4D26]">Terms</Text> and{' '}
+                            <Text className="text-[#0B4D26]">Conditions</Text>
                         </Text>
                     </View>
 
-                    <TouchableOpacity
-                        onPress={handleSignup}
-                        className="bg-[#0B4D26] p-4 rounded-lg mt-6"
-                    >
-                        <Text className="text-white text-center font-semibold text-lg">
-                            Sign up
-                        </Text>
+                    <TouchableOpacity onPress={handleSignup} className="bg-[#0B4D26] p-4 rounded-lg mt-6">
+                        <Text className="text-white text-center font-semibold text-lg">Sign up</Text>
                     </TouchableOpacity>
 
                     <View className="mt-16 space-y-4">
@@ -242,7 +282,7 @@ export default function Signup() {
 
             <Modal
                 animationType="slide"
-                transparent={true}
+                transparent
                 visible={modalVisible}
                 onRequestClose={() => setModalVisible(false)}
             >
@@ -250,10 +290,9 @@ export default function Signup() {
                     <View className="bg-white rounded-lg p-6 w-11/12">
                         <Text className="text-lg font-bold text-center mb-4">Terms & Conditions</Text>
                         <Text className="text-sm text-center mb-4">
-                            Welcome to AgriSense! 🌱 By using this app, you agree to our Terms & Conditions and Privacy Policy. AgriSense helps farmers with real-time soil analysis, weather insights, crop recommendations, irrigation advice, and pest management.
-                            Users must provide accurate farm details, use the app for agriculture only, and keep accounts secure. Misuse, such as false data or tampering, is prohibited.
-                            We collect farm, user, and location data to improve recommendations. Your data is secure and never sold. While we strive for 24/7 availability, occasional downtime may occur.
-                            Users can update or delete data anytime. For support, contact [example@gmail.com]
+                            Welcome to AgriSense. By using this app, you agree to our Terms & Conditions
+                            and Privacy Policy. AgriSense helps farmers with soil analysis, weather
+                            insights, crop recommendations, irrigation advice, and pest management.
                         </Text>
                         <TouchableOpacity
                             onPress={() => {

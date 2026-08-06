@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ENV from '@/config/env';
 import { authApi } from '@/services/api';
+import { isFarmerRole } from '@/utils/userDisplay';
 
 const API_URL_KEY = 'api_url_bound';
 
@@ -55,6 +56,14 @@ export default function Home() {
         try {
           const profile = await authApi.getProfile(token);
           const freshUser = profile?.user || user;
+
+          // Mobile app is farmers-only — drop non-farmer sessions.
+          if (!isFarmerRole(freshUser.role)) {
+            await clearSession();
+            setChecking(false);
+            return;
+          }
+
           if (profile?.user) {
             await AsyncStorage.setItem('user', JSON.stringify(profile.user));
             await AsyncStorage.setItem(API_URL_KEY, currentApi);

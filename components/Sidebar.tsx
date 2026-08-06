@@ -15,6 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authApi } from '@/services/api';
 import { disconnectCommunitySocket } from '@/services/communitySocket';
 import StatusModal from '@/components/ui/StatusModal';
+import { userDisplayName } from '@/utils/userDisplay';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SIDEBAR_WIDTH = Math.min(Math.round(SCREEN_WIDTH * 0.82), 300);
@@ -37,7 +38,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
-  const [username, setUsername] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [statusModal, setStatusModal] = useState({
     visible: false,
@@ -53,14 +54,14 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         const userJson = await AsyncStorage.getItem('user');
         if (userJson) {
           const userData = JSON.parse(userJson);
-          setUsername(userData.username || 'User');
+          setDisplayName(userDisplayName(userData));
           setProfileImage(userData.profileImage || null);
           return;
         }
         const token = await AsyncStorage.getItem('token');
         if (token) {
           const data = await authApi.getProfile(token);
-          setUsername(data.user.username);
+          setDisplayName(userDisplayName(data.user));
           setProfileImage(data.user.profileImage || null);
           await AsyncStorage.setItem('user', JSON.stringify(data.user));
         }
@@ -130,7 +131,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           <View style={styles.profileInfo}>
             <Text style={styles.greeting}>Good day</Text>
             <Text style={styles.name} numberOfLines={1}>
-              {username || 'Farmer'}
+              {displayName || 'Farmer'}
             </Text>
           </View>
           <TouchableOpacity onPress={onClose} hitSlop={12} style={styles.closeBtn}>

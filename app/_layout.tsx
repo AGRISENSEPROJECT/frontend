@@ -8,7 +8,6 @@ import '../global.css';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { NotificationProvider } from '@/context/NotificationContext';
 import { PresenceProvider } from '@/context/PresenceContext';
-import { SidebarProvider } from '@/context/SidebarContext';
 
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
@@ -37,7 +36,6 @@ export default function RootLayout() {
         <ThemeProvider value={theme}>
             <NotificationProvider>
                 <PresenceProvider>
-                <SidebarProvider>
                 <Stack>
                     <Stack.Screen name="index" options={{ headerShown: false }} />
                     <Stack.Screen name="signup" options={{ headerShown: false }} />
@@ -61,7 +59,6 @@ export default function RootLayout() {
                     <Stack.Screen name="+not-found" />
                 </Stack>
                 <StatusBar style="auto" />
-                </SidebarProvider>
                 </PresenceProvider>
             </NotificationProvider>
         </ThemeProvider>

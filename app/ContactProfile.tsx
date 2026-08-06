@@ -16,17 +16,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import { authApi } from '@/services/api';
+import { authApi, type CommunityAuthor } from '@/services/api';
 import StatusModal from '@/components/ui/StatusModal';
 import { colors, radius, shadow, space } from '@/constants/theme';
 import { ProfileSkeleton } from '@/components/ui/Skeleton';
+import { userDisplayName } from '@/utils/userDisplay';
 
-type Author = {
-  id: string;
-  username: string;
-  email?: string;
-  profileImage?: string | null;
-};
+type Author = CommunityAuthor;
 
 type ConversationDetail = {
   id: string;
@@ -200,7 +196,7 @@ export default function ContactProfile() {
         visible: true,
         type: 'success',
         title: 'User blocked',
-        message: `${other.username} has been blocked.`,
+        message: `${userDisplayName(other)} has been blocked.`,
       });
       setTimeout(() => {
         router.replace({
@@ -232,18 +228,19 @@ export default function ContactProfile() {
   };
 
   const confirmBlock = () => {
-    if (!other?.username) return;
+    if (!other?.id) return;
+    const label = userDisplayName(other);
     if (Platform.OS === 'web') {
       if (
         typeof window !== 'undefined' &&
-        window.confirm(`Block ${other.username}? They won’t be able to message you.`)
+        window.confirm(`Block ${label}? They won’t be able to message you.`)
       ) {
         blockUser();
       }
       return;
     }
     Alert.alert(
-      `Block ${other.username}?`,
+      `Block ${label}?`,
       'They won’t be able to message you or see your profile in chats.',
       [
         { text: 'Cancel', style: 'cancel' },
@@ -360,8 +357,8 @@ export default function ContactProfile() {
 
           {!isGroup && other ? (
             <View style={styles.card}>
-              <Text style={styles.cardLabel}>Username</Text>
-              <Text style={styles.cardValue}>{other.username}</Text>
+              <Text style={styles.cardLabel}>Name</Text>
+              <Text style={styles.cardValue}>{userDisplayName(other)}</Text>
               {other.email ? (
                 <>
                   <Text style={[styles.cardLabel, { marginTop: 12 }]}>Email</Text>
@@ -386,7 +383,7 @@ export default function ContactProfile() {
                   />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={styles.memberName} numberOfLines={1}>
-                      {m.username}
+                      {userDisplayName(m)}
                       {m.id === meId ? ' (you)' : ''}
                     </Text>
                     {m.id === conversation?.createdById ? (

@@ -18,12 +18,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { authApi } from '@/services/api';
+import { authApi, type CommunityAuthor } from '@/services/api';
 import { getCommunitySocket } from '@/services/communitySocket';
 import { colors, radius, space } from '@/constants/theme';
 import { ChatBubbleSkeleton } from '@/components/ui/Skeleton';
+import { userDisplayName } from '@/utils/userDisplay';
 
-type Author = { id: string; username: string; profileImage?: string | null };
+type Author = CommunityAuthor;
 type ChatMessage = {
   id: string;
   content: string;
@@ -424,7 +425,7 @@ export default function CommunityChat() {
                   >
                     {!mine && (
                       <Text style={styles.senderName}>
-                        {item.sender?.username || 'Farmer'}
+                        {userDisplayName(item.sender)}
                       </Text>
                     )}
                     <Text

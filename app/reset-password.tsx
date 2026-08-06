@@ -6,6 +6,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { authApi } from '@/services/api';
 import StatusModal from '@/components/ui/StatusModal';
 import Animated, { withTiming, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import { PASSWORD_HINT, validateStrongPassword } from '@/utils/password';
 
 export default function ResetPassword() {
     const router = useRouter();
@@ -74,6 +75,12 @@ export default function ResetPassword() {
         }
         if (newPassword !== confirmPassword) {
             showStatus('error', 'Error', 'Passwords do not match');
+            return;
+        }
+
+        const passwordError = validateStrongPassword(newPassword);
+        if (passwordError) {
+            showStatus('error', 'Weak password', passwordError || PASSWORD_HINT);
             return;
         }
 

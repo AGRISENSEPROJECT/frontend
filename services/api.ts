@@ -1,6 +1,15 @@
 import ENV from '@/config/env';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+/** NestJS often returns `message` as a string or string[]. */
+export function apiErrorMessage(result: any, fallback = 'Request failed'): string {
+    if (!result) return fallback;
+    if (Array.isArray(result.message)) return result.message.join(', ');
+    if (typeof result.message === 'string' && result.message.trim()) return result.message;
+    if (typeof result.error === 'string' && result.error.trim()) return result.error;
+    return fallback;
+}
+
 // Helper for authenticated requests with automatic token refresh
 const authenticatedFetch = async (endpoint: string, options: any = {}): Promise<any> => {
     let token = await AsyncStorage.getItem('token');
@@ -54,7 +63,7 @@ const authenticatedFetch = async (endpoint: string, options: any = {}): Promise<
 
     const result = await response.json();
     if (!response.ok) {
-        throw new Error(result.message || 'Request failed');
+        throw new Error(apiErrorMessage(result));
     }
     return result;
 };
@@ -63,6 +72,40 @@ const authenticatedFetch = async (endpoint: string, options: any = {}): Promise<
 // Accept any of the known shapes so login/dashboard guards work correctly.
 export const userHasFarm = (user: any): boolean =>
     !!(user?.hasFarm || user?.farm || (user?.farmsCount ?? 0) > 0);
+
+export type AuthUser = {
+    id: string;
+    email: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    /** Computed display label from backend (legacy alias) */
+    username?: string | null;
+    displayName?: string | null;
+    phoneNumber?: string | null;
+    profileImage?: string | null;
+    role?: string;
+    status?: string;
+    isEmailVerified?: boolean;
+    onboardingStep?: number;
+    onboardingCompleted?: boolean;
+    activeFarmId?: string | null;
+    farmsCount?: number;
+    hasFarm?: boolean;
+    provider?: string;
+    nationalIdVerified?: boolean;
+    identityVerificationStatus?: string | null;
+};
+
+export type CommunityAuthor = {
+    id: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    email?: string | null;
+    profileImage?: string | null;
+    username?: string | null;
+    displayName?: string | null;
+    online?: boolean;
+};
 
 export const authApi = {
     endpoints: {
@@ -121,7 +164,7 @@ export const authApi = {
             });
             const result = await response.json();
             if (!response.ok) {
-                throw new Error(result.message || 'Signup failed');
+                throw new Error(apiErrorMessage(result, 'Signup failed'));
             }
             return result;
         } catch (error: any) {
@@ -131,16 +174,21 @@ export const authApi = {
 
     signin: async (data: SigninData): Promise<SigninResponse> => {
         try {
+            // Backend accepts email OR phoneNumber (farmers); never send both empty keys.
+            const body: SigninData = { password: data.password };
+            if (data.email?.trim()) body.email = data.email.trim();
+            if (data.phoneNumber?.trim()) body.phoneNumber = data.phoneNumber.trim();
+
             const response = await fetch(`${ENV.API_URL}${authApi.endpoints.login}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(data),
+                body: JSON.stringify(body),
             });
             const result = await response.json();
             if (!response.ok) {
-                throw new Error(result.message || 'Login failed');
+                throw new Error(apiErrorMessage(result, 'Login failed'));
             }
             return result;
         } catch (error: any) {
@@ -154,11 +202,22 @@ export const authApi = {
         });
     },
 
-    updateProfile: async (data: { username?: string; phoneNumber?: string | null }, token: string): Promise<any> => {
+    updateProfile: async (
+        data: {
+            firstName?: string;
+            lastName?: string;
+            phoneNumber?: string | null;
+        },
+        _token?: string,
+    ): Promise<any> => {
         // Backend exposes PUT /api/auth/profile (PATCH returns 404)
-        // Phone is optional — send trimmed value (including '') so users can clear it.
-        const payload: { username?: string; phoneNumber?: string } = {};
-        if (data.username?.trim()) payload.username = data.username.trim();
+        const payload: {
+            firstName?: string;
+            lastName?: string;
+            phoneNumber?: string;
+        } = {};
+        if (data.firstName?.trim()) payload.firstName = data.firstName.trim();
+        if (data.lastName !== undefined) payload.lastName = String(data.lastName || '').trim();
         if (data.phoneNumber !== undefined && data.phoneNumber !== null) {
             payload.phoneNumber = String(data.phoneNumber).trim();
         }
@@ -220,7 +279,7 @@ export const authApi = {
             });
             const result = await response.json();
             if (!response.ok) {
-                throw new Error(result.message || 'Failed to request reset code');
+                throw new Error(apiErrorMessage(result, 'Failed to request reset code'));
             }
             return result;
         } catch (error: any) {
@@ -239,7 +298,7 @@ export const authApi = {
             });
             const result = await response.json();
             if (!response.ok) {
-                throw new Error(result.message || 'Failed to reset password');
+                throw new Error(apiErrorMessage(result, 'Failed to reset password'));
             }
             return result;
         } catch (error: any) {
@@ -265,7 +324,7 @@ export const authApi = {
             });
             const result = await response.json();
             if (!response.ok) {
-                throw new Error(result.message || 'Token refresh failed');
+                throw new Error(apiErrorMessage(result, 'Token refresh failed'));
             }
             return result;
         } catch (error: any) {
@@ -622,7 +681,7 @@ export const authApi = {
             });
             const result = await response.json();
             if (!response.ok) {
-                throw new Error(result.message || 'Verification failed');
+                throw new Error(apiErrorMessage(result, 'Verification failed'));
             }
             return result;
         } catch (error: any) {
@@ -649,7 +708,7 @@ export const authApi = {
             });
             const result = await response.json();
             if (!response.ok) {
-                throw new Error(result.message || 'Failed to resend code');
+                throw new Error(apiErrorMessage(result, 'Failed to resend code'));
             }
             return result;
         } catch (error: any) {
@@ -752,30 +811,34 @@ export const predictionsApi = {
 
 export type SignupData = {
     email: string;
-    username: string;
     password: string;
+    firstName: string;
+    lastName?: string;
+    phoneNumber?: string;
 };
 
 export type SigninData = {
-    email: string;
+    email?: string;
+    phoneNumber?: string;
     password: string;
 };
 
 export type SignupResponse = {
     message: string;
     userId: string;
+    onboardingStep?: number;
 };
 
 export type SigninResponse = {
-    access_token: string;
+    access_token?: string;
     refresh_token?: string;
-    user: {
-        id: string;
-        email: string;
-        username: string;
-        isEmailVerified: boolean;
-        hasFarm: boolean;
-    };
+    expires_in?: string;
+    /** Present when email is not verified yet — no tokens issued */
+    isEmailVerified?: boolean;
+    message?: string;
+    userId?: string;
+    email?: string;
+    user?: AuthUser;
 };
 
 export type FarmData = {

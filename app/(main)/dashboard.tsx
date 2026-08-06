@@ -24,6 +24,7 @@ import NotificationBell from '@/components/NotificationBell';
 import { useNotifications } from '@/context/NotificationContext';
 import { hasSeenPredictionRun, markPredictionRunSeen, timeAgoShort } from '@/services/notifications';
 import { DashboardSkeleton } from '@/components/ui/Skeleton';
+import { userDisplayName } from '@/utils/userDisplay';
 
 const TABS = ['Overview', 'Soil status', 'Weather', 'Recommend', 'Irrigation', 'Pests'];
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -49,7 +50,14 @@ type CommunityPostPreview = {
     description: string;
     imageUrl?: string | null;
     createdAt: string;
-    author?: { id?: string; username?: string; profileImage?: string | null } | null;
+    author?: {
+        id?: string;
+        username?: string;
+        displayName?: string;
+        firstName?: string;
+        lastName?: string;
+        profileImage?: string | null;
+    } | null;
     likeCount?: number;
     commentCount?: number;
     likes?: any[];
@@ -531,7 +539,7 @@ export default function Dashboard() {
                                 {farms.length > 0 && <Ionicons name="chevron-down" size={14} color="white" style={{ marginLeft: 4 }} />}
                             </TouchableOpacity>
                             <Text style={dashStyles.farmWelcome} numberOfLines={1}>
-                                {farmData?.name || `Welcome, ${userData?.username || ''}`}
+                                {farmData?.name || `Welcome, ${userDisplayName(userData)}`}
                             </Text>
                         </View>
                         <View style={dashStyles.headerRight}>
@@ -619,7 +627,7 @@ export default function Dashboard() {
                                                 />
                                                 <View style={{ flex: 1 }}>
                                                     <Text style={dashStyles.postAuthor} numberOfLines={1}>
-                                                        {post.author?.username || 'Farmer'}
+                                                        {userDisplayName(post.author) || 'Farmer'}
                                                     </Text>
                                                     <Text style={dashStyles.postTime}>
                                                         {post.createdAt ? timeAgoShort(post.createdAt) : ''}

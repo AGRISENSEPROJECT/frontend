@@ -26,6 +26,7 @@ import {
   seedFeatureNotifications,
   clearNotifications,
 } from '@/services/notifications';
+import { userDisplayName } from '@/utils/userDisplay';
 
 type NotificationContextValue = {
   notifications: AppNotification[];
@@ -223,7 +224,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         onCreated = async (post: any) => {
           const authorId = post?.author?.id || post?.user?.id;
           if (authorId && userId && authorId === userId) return;
-          const authorName = post?.author?.username || post?.user?.username || 'A farmer';
+          const authorName = userDisplayName(post?.author || post?.user) || 'A farmer';
           const snippet = String(post?.title || post?.description || '')
             .trim()
             .slice(0, 90);
@@ -241,7 +242,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           const commenterId = comment?.author?.id || comment?.user?.id;
           if (commenterId && userId && commenterId === userId) return;
           if (!comment?.postId) return;
-          const name = comment?.author?.username || comment?.user?.username || 'Someone';
+          const name = userDisplayName(comment?.author || comment?.user) || 'Someone';
           const snippet = String(comment?.content || '').trim().slice(0, 80);
           await push({
             type: 'community_comment',
@@ -259,7 +260,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         onLiked = async (payload: any) => {
           if (!payload?.postId) return;
           if (payload.userId && userId && payload.userId === userId) return;
-          const name = payload?.user?.username || 'Someone';
+          const name = userDisplayName(payload?.user) || 'Someone';
           await push({
             type: 'community_like',
             title: 'Post liked',
