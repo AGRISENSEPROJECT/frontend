@@ -19,6 +19,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { authApi } from '@/services/api';
 import StatusModal from '@/components/ui/StatusModal';
 import { colors, radius, shadow, space } from '@/constants/theme';
+import { ProfileSkeleton } from '@/components/ui/Skeleton';
 
 type Author = {
   id: string;
@@ -179,29 +180,76 @@ export default function ContactProfile() {
       await authApi.leaveConversation(conversationId);
       router.replace({
         pathname: '/(main)/community',
-        params: { tab: isGroup ? 'groups' : 'messages' },
+        params: { tab: 'groups' },
       });
     } catch (error: any) {
       setStatusModal({
         visible: true,
         type: 'error',
         title: 'Leave failed',
-        message: error?.message || 'Could not leave this chat.',
+        message: error?.message || 'Could not leave this group.',
+      });
+    }
+  };
+
+  const blockUser = async () => {
+    if (!other?.id) return;
+    try {
+      await authApi.blockUser(other.id);
+      setStatusModal({
+        visible: true,
+        type: 'success',
+        title: 'User blocked',
+        message: `${other.username} has been blocked.`,
+      });
+      setTimeout(() => {
+        router.replace({
+          pathname: '/(main)/community',
+          params: { tab: 'messages' },
+        });
+      }, 600);
+    } catch (error: any) {
+      setStatusModal({
+        visible: true,
+        type: 'error',
+        title: 'Block failed',
+        message: error?.message || 'Could not block this user.',
       });
     }
   };
 
   const confirmLeave = () => {
     if (Platform.OS === 'web') {
-      if (typeof window !== 'undefined' && window.confirm('Leave this conversation?')) {
+      if (typeof window !== 'undefined' && window.confirm('Leave this group?')) {
         leave();
       }
       return;
     }
-    Alert.alert('Leave conversation?', 'You will stop receiving messages here.', [
+    Alert.alert('Leave group?', 'You will stop receiving messages from this group.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Leave', style: 'destructive', onPress: leave },
     ]);
+  };
+
+  const confirmBlock = () => {
+    if (!other?.username) return;
+    if (Platform.OS === 'web') {
+      if (
+        typeof window !== 'undefined' &&
+        window.confirm(`Block ${other.username}? They won’t be able to message you.`)
+      ) {
+        blockUser();
+      }
+      return;
+    }
+    Alert.alert(
+      `Block ${other.username}?`,
+      'They won’t be able to message you or see your profile in chats.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Block', style: 'destructive', onPress: blockUser },
+      ],
+    );
   };
 
   return (
@@ -222,8 +270,8 @@ export default function ContactProfile() {
       </View>
 
       {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator color={colors.brand} size="large" />
+        <View style={[styles.content, { paddingTop: 8 }]}>
+          <ProfileSkeleton />
         </View>
       ) : !conversationId ? (
         <View style={styles.centered}>
@@ -350,10 +398,17 @@ export default function ContactProfile() {
             </View>
           ) : null}
 
-          <TouchableOpacity style={styles.dangerBtn} onPress={confirmLeave}>
-            <Ionicons name="exit-outline" size={18} color={colors.danger} />
+          <TouchableOpacity
+            style={styles.dangerBtn}
+            onPress={isGroup ? confirmLeave : confirmBlock}
+          >
+            <Ionicons
+              name={isGroup ? 'exit-outline' : 'ban-outline'}
+              size={18}
+              color={colors.danger}
+            />
             <Text style={styles.dangerText}>
-              {isGroup ? 'Leave group' : 'Leave chat'}
+              {isGroup ? 'Leave group' : 'Block user'}
             </Text>
           </TouchableOpacity>
         </ScrollView>

@@ -17,10 +17,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { authApi } from '@/services/api';
 import StatusModal from '@/components/ui/StatusModal';
+import { useSidebar } from '@/context/SidebarContext';
+import { SettingsSkeleton } from '@/components/ui/Skeleton';
 
 export default function Settings() {
     const router = useRouter();
+    const { toggleSidebar } = useSidebar();
     const [loading, setLoading] = useState(false);
+    const [initialLoading, setInitialLoading] = useState(true);
     const [uploadingImage, setUploadingImage] = useState(false);
     const [userData, setUserData] = useState<any>(null);
     const [statusModal, setStatusModal] = useState({
@@ -80,6 +84,7 @@ export default function Settings() {
             console.error('Error loading profile:', error);
         } finally {
             setLoading(false);
+            setInitialLoading(false);
         }
     };
 
@@ -228,13 +233,20 @@ export default function Settings() {
     return (
         <View style={styles.container}>
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} hitSlop={10}>
-                    <Ionicons name="arrow-back" size={24} color="black" />
+                <TouchableOpacity
+                    onPress={toggleSidebar}
+                    hitSlop={10}
+                    accessibilityLabel="Open menu"
+                >
+                    <Ionicons name="menu" size={24} color="black" />
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Settings</Text>
                 <View style={{ width: 24 }} />
             </View>
 
+            {initialLoading && !userData ? (
+                <SettingsSkeleton />
+            ) : (
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 <View style={styles.imageSection}>
                     <View style={styles.imageContainer}>
@@ -373,6 +385,7 @@ export default function Settings() {
 
                 <View style={{ height: 40 }} />
             </ScrollView>
+            )}
 
             <StatusModal
                 visible={statusModal.visible}

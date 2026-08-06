@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useSidebar } from '../../context/SidebarContext';
 import NotificationBell from '@/components/NotificationBell';
+import { WeatherSkeleton } from '@/components/ui/Skeleton';
 
 const API_KEY = '4a681263221d7d234ffedd87dc199cab';
 
@@ -231,9 +232,18 @@ export default function Weather() {
 
   if (loading && !coordinates.lat) {
     return (
-      <View style={styles.loadingScreen}>
-        <ActivityIndicator size="large" color="#0B4D26" />
-        <Text style={styles.loadingText}>Getting your location...</Text>
+      <View style={styles.screen}>
+        <View style={[styles.header, { minHeight: 72, justifyContent: 'flex-end', paddingBottom: 12 }]}>
+          <View style={styles.headerTop}>
+            <TouchableOpacity onPress={toggleSidebar} style={styles.iconButton}>
+              <Ionicons name="menu-outline" size={26} color="#fff" />
+            </TouchableOpacity>
+            <Text style={styles.locationText}>Weather</Text>
+            <NotificationBell color="#fff" size={24} />
+          </View>
+        </View>
+        <WeatherSkeleton />
+        <Text style={[styles.loadingText, { textAlign: 'center' }]}>Getting your location...</Text>
       </View>
     );
   }
@@ -321,7 +331,19 @@ export default function Weather() {
             </Text>
           </View>
           {loading ? (
-            <ActivityIndicator color="#0B4D26" style={{ marginVertical: 20 }} />
+            <View style={{ flexDirection: 'row', gap: 10, marginVertical: 12 }}>
+              {[1, 2, 3, 4, 5].map((i) => (
+                <View
+                  key={i}
+                  style={{
+                    width: 64,
+                    height: 88,
+                    borderRadius: 14,
+                    backgroundColor: '#D6DED8',
+                  }}
+                />
+              ))}
+            </View>
           ) : hourlyForecast.length > 0 ? (
             <ScrollView
               horizontal

@@ -13,6 +13,8 @@ import {
   Alert,
   Platform,
   Dimensions,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
@@ -26,14 +28,19 @@ import StatusModal from '@/components/ui/StatusModal';
 import ConversationRow from '@/components/community/ConversationRow';
 import { colors, radius, shadow, space } from '@/constants/theme';
 import { usePresence } from '@/context/PresenceContext';
+import {
+  FeedPostSkeleton,
+  ConversationSkeleton,
+} from '@/components/ui/Skeleton';
+
+const FEED_PAGE_SIZE = 8;
+const FEED_CARD_WIDTH = Dimensions.get('window').width - 32;
 
 const TAB_LABELS: Record<'Feed' | 'Inbox' | 'Group', string> = {
   Feed: 'Feed',
   Inbox: 'Messages',
   Group: 'Groups',
 };
-
-const FEED_CARD_WIDTH = Dimensions.get('window').width - 32;
 
 /** Farm-themed placeholders until a post has a real cover image */
 const POST_PLACEHOLDERS = [
@@ -103,6 +110,11 @@ export default function Community() {
   const [userData, setUserData] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [feedLoading, setFeedLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [feedPage, setFeedPage] = useState(1);
+  const [hasMorePosts, setHasMorePosts] = useState(true);
+  const [conversationsLoading, setConversationsLoading] = useState(false);
 
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
@@ -164,19 +176,79 @@ export default function Community() {
     }));
   };
 
-  const fetchPosts = useCallback(async () => {
-    setRefreshing(true);
+  const feedPageRef = useRef(1);
+  const hasMoreRef = useRef(true);
+  const loadingMoreRef = useRef(false);
+
+  const fetchPosts = useCallback(async (opts?: { reset?: boolean }) => {
+    const reset = opts?.reset !== false;
+    if (reset) {
+      setRefreshing(true);
+      setFeedLoading(true);
+      feedPageRef.current = 1;
+      hasMoreRef.current = true;
+    } else {
+      if (loadingMoreRef.current || !hasMoreRef.current) return;
+      loadingMoreRef.current = true;
+      setLoadingMore(true);
+    }
+
+    const page = reset ? 1 : feedPageRef.current + 1;
     try {
-      const data = await authApi.getPosts({ page: 1, limit: 50 });
-      setPosts(normalizePosts(data));
+      const data = await authApi.getPosts({ page, limit: FEED_PAGE_SIZE });
+      const items = normalizePosts(data);
+      const total = typeof data?.total === 'number' ? data.total : undefined;
+
+      setPosts((prev) => {
+        if (reset) return items;
+        const seen = new Set(prev.map((p) => p.id));
+        const merged = [...prev, ...items.filter((p) => !seen.has(p.id))];
+        if (typeof total === 'number') {
+          hasMoreRef.current = merged.length < total && items.length > 0;
+        } else {
+          hasMoreRef.current = items.length >= FEED_PAGE_SIZE;
+        }
+        setHasMorePosts(hasMoreRef.current);
+        return merged;
+      });
+
+      if (reset) {
+        if (typeof total === 'number') {
+          hasMoreRef.current = items.length < total;
+        } else {
+          hasMoreRef.current = items.length >= FEED_PAGE_SIZE;
+        }
+        setHasMorePosts(hasMoreRef.current);
+      }
+
+      feedPageRef.current = page;
+      setFeedPage(page);
     } catch (error) {
       console.error('Error fetching posts:', error);
     } finally {
       setRefreshing(false);
+      setFeedLoading(false);
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
     }
   }, [userData?.id]);
 
+  const loadMorePosts = useCallback(() => {
+    fetchPosts({ reset: false });
+  }, [fetchPosts]);
+
+  const onFeedScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+      const nearBottom =
+        layoutMeasurement.height + contentOffset.y >= contentSize.height - 360;
+      if (nearBottom) loadMorePosts();
+    },
+    [loadMorePosts],
+  );
+
   const fetchConversations = useCallback(async (type?: 'direct' | 'group') => {
+    setConversationsLoading(true);
     try {
       const data = await authApi.listConversations(type);
       const list = Array.isArray(data) ? data : [];
@@ -186,6 +258,8 @@ export default function Community() {
     } catch (error) {
       console.error('Error fetching conversations:', error);
       setConversations([]);
+    } finally {
+      setConversationsLoading(false);
     }
   }, []);
 
@@ -246,7 +320,7 @@ export default function Community() {
         const userJson = await AsyncStorage.getItem('user');
         if (userJson) setUserData(JSON.parse(userJson));
       } catch {}
-      fetchPosts();
+      fetchPosts({ reset: true });
       refreshUnreadBadges();
     })();
   }, [fetchPosts, refreshUnreadBadges]);
@@ -931,18 +1005,21 @@ export default function Community() {
           ref={feedScrollRef}
           style={styles.postsList}
           contentContainerStyle={{ paddingBottom: 28 }}
+          onScroll={onFeedScroll}
+          scrollEventThrottle={200}
           refreshControl={
             <RefreshControl
               refreshing={refreshing && posts.length > 0}
-              onRefresh={fetchPosts}
+              onRefresh={() => fetchPosts({ reset: true })}
               colors={[colors.brandMid]}
               tintColor={colors.brandMid}
             />
           }
         >
-          {refreshing && posts.length === 0 ? (
-            <View style={styles.emptyState}>
-              <ActivityIndicator size="large" color={colors.brandMid} />
+          {feedLoading && posts.length === 0 ? (
+            <View style={{ paddingBottom: 16 }}>
+              <FeedPostSkeleton />
+              <FeedPostSkeleton />
             </View>
           ) : posts.length === 0 ? (
             <View style={styles.emptyState}>
@@ -1085,6 +1162,14 @@ export default function Community() {
               );
             })
           )}
+          {loadingMore ? (
+            <View style={{ paddingVertical: 18, alignItems: 'center' }}>
+              <ActivityIndicator color={colors.brandMid} />
+            </View>
+          ) : null}
+          {!feedLoading && !loadingMore && posts.length > 0 && !hasMorePosts ? (
+            <Text style={styles.endOfFeed}>You’re all caught up</Text>
+          ) : null}
         </ScrollView>
       )}
 
@@ -1103,7 +1188,14 @@ export default function Community() {
             />
           }
         >
-          {conversations.length === 0 ? (
+          {conversationsLoading && conversations.length === 0 ? (
+            <View>
+              <ConversationSkeleton />
+              <ConversationSkeleton />
+              <ConversationSkeleton />
+              <ConversationSkeleton />
+            </View>
+          ) : conversations.length === 0 ? (
             <View style={styles.emptyState}>
               <View style={styles.emptyIconWrap}>
                 <Ionicons
@@ -1929,6 +2021,13 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '800',
     fontSize: 14,
+  },
+  endOfFeed: {
+    textAlign: 'center',
+    color: colors.textMuted,
+    fontWeight: '600',
+    fontSize: 13,
+    paddingVertical: 18,
   },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: {

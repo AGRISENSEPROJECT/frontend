@@ -103,6 +103,8 @@ export const authApi = {
         notificationsUnreadCount: '/api/notifications/unread-count',
         notificationsReadAll: '/api/notifications/read-all',
         notificationRead: (id: string) => `/api/notifications/${id}/read`,
+        communityBlocks: '/api/community/blocks',
+        communityUnblock: (userId: string) => `/api/community/blocks/${userId}`,
     },
 
     signup: async (data: SignupData): Promise<SignupResponse> => {
@@ -524,6 +526,19 @@ export const authApi = {
     leaveConversation: async (id: string): Promise<any> => {
         return await authenticatedFetch(`${authApi.endpoints.conversationById(id)}/leave`, {
             method: 'POST',
+        });
+    },
+
+    blockUser: async (userId: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.communityBlocks, {
+            method: 'POST',
+            body: JSON.stringify({ userId }),
+        });
+    },
+
+    unblockUser: async (userId: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.communityUnblock(userId), {
+            method: 'DELETE',
         });
     },
 

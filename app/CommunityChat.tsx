@@ -19,6 +19,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authApi } from '@/services/api';
 import { getCommunitySocket } from '@/services/communitySocket';
 import { colors, radius, space } from '@/constants/theme';
+import { ChatBubbleSkeleton } from '@/components/ui/Skeleton';
 
 type Author = { id: string; username: string; profileImage?: string | null };
 type ChatMessage = {
@@ -256,7 +257,10 @@ export default function CommunityChat() {
 
       {loading ? (
         <View style={styles.loading}>
-          <ActivityIndicator color={colors.brand} />
+          <ChatBubbleSkeleton />
+          <ChatBubbleSkeleton mine />
+          <ChatBubbleSkeleton />
+          <ChatBubbleSkeleton mine />
         </View>
       ) : (
         <FlatList
@@ -411,8 +415,8 @@ const styles = StyleSheet.create({
   },
   loading: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingTop: 24,
+    justifyContent: 'flex-start',
   },
   list: {
     flex: 1,

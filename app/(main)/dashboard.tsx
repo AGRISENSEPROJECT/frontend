@@ -23,6 +23,7 @@ import PayloadRows, { formatValue, formatEntry, humanize, HIDDEN_KEYS } from '@/
 import NotificationBell from '@/components/NotificationBell';
 import { useNotifications } from '@/context/NotificationContext';
 import { hasSeenPredictionRun, markPredictionRunSeen, timeAgoShort } from '@/services/notifications';
+import { DashboardSkeleton } from '@/components/ui/Skeleton';
 
 const TABS = ['Overview', 'Soil status', 'Weather', 'Recommend', 'Irrigation', 'Pests'];
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -499,11 +500,7 @@ export default function Dashboard() {
     );
 
     if (loading) {
-        return (
-            <View className="flex-1 items-center justify-center bg-[#FAF9F6]">
-                <ActivityIndicator size="large" color="#0B4D26" />
-            </View>
-        );
+        return <DashboardSkeleton />;
     }
 
     return (

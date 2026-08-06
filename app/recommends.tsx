@@ -9,6 +9,7 @@ import PredictionForm from '@/components/recommendations/PredictionForm';
 import { humanize, formatEntry, cleanPayload, formatDate } from '@/components/recommendations/PayloadRows';
 import ResultFieldCard, { GrowthScoreBar } from '@/components/recommendations/ResultFieldCard';
 import NotificationBell from '@/components/NotificationBell';
+import { RecommendListSkeleton } from '@/components/ui/Skeleton';
 
 const CATEGORIES = [
     { type: 'crop', icon: 'leaf-outline' as const, emoji: '🌱', title: 'Crop Recommendations', subtitle: 'Best crops based on soil, weather, and market demand.' },
@@ -579,11 +580,7 @@ export default function Recommends() {
                 )}
             </View>
 
-            {view === 'loading' && (
-                <View style={styles.centered}>
-                    <ActivityIndicator size="large" color="#34643F" />
-                </View>
-            )}
+            {view === 'loading' && <RecommendListSkeleton />}
 
             {view === 'form' && (
                 <PredictionForm onSuccess={handlePredictionSuccess} firstTime={firstTime} />
