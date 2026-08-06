@@ -28,11 +28,24 @@ const TABS = ['Overview', 'Soil status', 'Weather', 'Recommend', 'Irrigation', '
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CAROUSEL_CARD_WIDTH = SCREEN_WIDTH - 48;
 const CAROUSEL_GAP = 12;
-const LATEST_UPDATE_BG = require('../../assets/latest-update.png');
+const LATEST_UPDATE_PLACEHOLDERS = [
+    require('../../assets/latest-update.png'),
+    require('../../assets/farm-illustration.png'),
+    require('../../assets/crop-image.png'),
+    require('../../assets/soil-detection-image.png'),
+];
+
+function latestPostCover(post: { id: string; imageUrl?: string | null }) {
+    if (post.imageUrl) return { uri: post.imageUrl };
+    let hash = 0;
+    for (let i = 0; i < post.id.length; i++) hash = (hash + post.id.charCodeAt(i)) % 997;
+    return LATEST_UPDATE_PLACEHOLDERS[hash % LATEST_UPDATE_PLACEHOLDERS.length];
+}
 
 type CommunityPostPreview = {
     id: string;
     description: string;
+    imageUrl?: string | null;
     createdAt: string;
     author?: { id?: string; username?: string; profileImage?: string | null } | null;
     likeCount?: number;
@@ -560,7 +573,7 @@ export default function Dashboard() {
                             activeOpacity={0.9}
                             onPress={() => router.push('/(main)/community')}
                         >
-                            <Image source={LATEST_UPDATE_BG} style={dashStyles.emptyPostsBg} />
+                            <Image source={LATEST_UPDATE_PLACEHOLDERS[0]} style={dashStyles.emptyPostsBg} />
                             <View style={dashStyles.emptyPostsOverlay}>
                                 <Text style={dashStyles.emptyPostsTitle}>No community posts yet</Text>
                                 <Text style={dashStyles.emptyPostsBody}>Be the first to share an update or tip.</Text>
@@ -589,7 +602,10 @@ export default function Dashboard() {
                                         onPress={() => openCommunityPost(post.id)}
                                         style={[dashStyles.postCard, { width: CAROUSEL_CARD_WIDTH, marginRight: CAROUSEL_GAP }]}
                                     >
-                                        <Image source={LATEST_UPDATE_BG} style={dashStyles.postCardBg} />
+                                        <Image
+                                            source={latestPostCover(post)}
+                                            style={dashStyles.postCardBg}
+                                        />
                                         <View style={dashStyles.postCardOverlay} />
                                         <View style={dashStyles.postCardContent}>
                                             <View style={dashStyles.postCardMeta}>

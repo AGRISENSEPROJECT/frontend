@@ -87,6 +87,7 @@ export const authApi = {
         likePost: (id: string) => `/api/community/posts/${id}/like`,
         commentPost: (id: string) => `/api/community/posts/${id}/comment`,
         deletePost: (id: string) => `/api/community/posts/${id}`,
+        updatePost: (id: string) => `/api/community/posts/${id}`,
         deleteComment: (id: string) => `/api/community/comments/${id}`,
         searchUsers: '/api/community/users',
         conversations: '/api/community/conversations',
@@ -141,12 +142,14 @@ export const authApi = {
         });
     },
 
-    updateProfile: async (data: { username?: string; phoneNumber?: string }, token: string): Promise<any> => {
+    updateProfile: async (data: { username?: string; phoneNumber?: string | null }, token: string): Promise<any> => {
         // Backend exposes PUT /api/auth/profile (PATCH returns 404)
-        // Omit blank phone so profile updates work without a number.
+        // Phone is optional — send trimmed value (including '') so users can clear it.
         const payload: { username?: string; phoneNumber?: string } = {};
         if (data.username?.trim()) payload.username = data.username.trim();
-        if (data.phoneNumber?.trim()) payload.phoneNumber = data.phoneNumber.trim();
+        if (data.phoneNumber !== undefined && data.phoneNumber !== null) {
+            payload.phoneNumber = String(data.phoneNumber).trim();
+        }
 
         return await authenticatedFetch(authApi.endpoints.updateProfile, {
             method: 'PUT',
@@ -156,15 +159,24 @@ export const authApi = {
 
     uploadProfileImage: async (imageUri: string, token: string): Promise<any> => {
         const formData = new FormData();
-        const filename = imageUri.split('/').pop();
-        const match = /\.(\w+)$/.exec(filename || '');
-        const type = match ? `image/${match[1]}` : `image`;
+        const rawName = imageUri.split('?')[0].split('/').pop() || 'profile.jpg';
+        const filename = rawName.includes('.') ? rawName : `${rawName}.jpg`;
+        const match = /\.(\w+)$/.exec(filename);
+        const ext = (match?.[1] || 'jpeg').toLowerCase();
+        const type = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
 
-        formData.append('image', {
-            uri: imageUri,
-            name: filename,
-            type,
-        } as any);
+        // Web needs a real Blob/File; native uses the { uri, name, type } shape.
+        if (typeof document !== 'undefined') {
+            const response = await fetch(imageUri);
+            const blob = await response.blob();
+            formData.append('image', blob, filename);
+        } else {
+            formData.append('image', {
+                uri: imageUri,
+                name: filename,
+                type,
+            } as any);
+        }
 
         return await authenticatedFetch(authApi.endpoints.uploadProfileImage, {
             method: 'POST',
@@ -297,10 +309,35 @@ export const authApi = {
         });
     },
 
-    createPost: async (data: { description: string }): Promise<any> => {
+    createPost: async (data: {
+        description: string;
+        imageUri: string;
+    }): Promise<any> => {
+        const formData = new FormData();
+        formData.append('description', data.description);
+
+        const rawName = data.imageUri.split('?')[0].split('/').pop() || `post-${Date.now()}.jpg`;
+        const filename = rawName.includes('.') ? rawName : `${rawName}.jpg`;
+        const match = /\.(\w+)$/.exec(filename);
+        const ext = (match?.[1] || 'jpeg').toLowerCase();
+        const type = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
+
+        // Web needs a Blob/File; native uses { uri, name, type }.
+        if (typeof document !== 'undefined') {
+            const response = await fetch(data.imageUri);
+            const blob = await response.blob();
+            formData.append('image', blob, filename);
+        } else {
+            formData.append('image', {
+                uri: data.imageUri,
+                name: filename,
+                type: type === 'image/jpg' ? 'image/jpeg' : type,
+            } as any);
+        }
+
         return await authenticatedFetch(authApi.endpoints.createPost, {
             method: 'POST',
-            body: JSON.stringify(data),
+            body: formData,
         });
     },
 
@@ -330,6 +367,40 @@ export const authApi = {
     deletePost: async (postId: string): Promise<any> => {
         return await authenticatedFetch(authApi.endpoints.deletePost(postId), {
             method: 'DELETE',
+        });
+    },
+
+    updatePost: async (
+        postId: string,
+        data: { description: string; imageUri?: string | null },
+    ): Promise<any> => {
+        const formData = new FormData();
+        formData.append('description', data.description);
+
+        if (data.imageUri) {
+            const rawName =
+                data.imageUri.split('?')[0].split('/').pop() || `post-${Date.now()}.jpg`;
+            const filename = rawName.includes('.') ? rawName : `${rawName}.jpg`;
+            const match = /\.(\w+)$/.exec(filename);
+            const ext = (match?.[1] || 'jpeg').toLowerCase();
+            const type = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
+
+            if (typeof document !== 'undefined') {
+                const response = await fetch(data.imageUri);
+                const blob = await response.blob();
+                formData.append('image', blob, filename);
+            } else {
+                formData.append('image', {
+                    uri: data.imageUri,
+                    name: filename,
+                    type: type === 'image/jpg' ? 'image/jpeg' : type,
+                } as any);
+            }
+        }
+
+        return await authenticatedFetch(authApi.endpoints.updatePost(postId), {
+            method: 'PATCH',
+            body: formData,
         });
     },
 

@@ -11,14 +11,39 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
+  Platform,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
 import { useSidebar } from '../../context/SidebarContext';
 import { authApi } from '@/services/api';
 import { getCommunitySocket } from '@/services/communitySocket';
 import StatusModal from '@/components/ui/StatusModal';
+
+const FEED_CARD_WIDTH = Dimensions.get('window').width - 32;
+
+/** Farm-themed placeholders until a post has a real cover image */
+const POST_PLACEHOLDERS = [
+  require('../../assets/latest-update.png'),
+  require('../../assets/farm-illustration.png'),
+  require('../../assets/crop-image.png'),
+  require('../../assets/soil-detection-image.png'),
+  require('../../assets/login-illustration.png'),
+];
+
+function placeholderForPost(id: string) {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash + id.charCodeAt(i) * (i + 1)) % 997;
+  return POST_PLACEHOLDERS[hash % POST_PLACEHOLDERS.length];
+}
+
+function postCoverSource(post: { id: string; imageUrl?: string | null }) {
+  if (post.imageUrl) return { uri: post.imageUrl };
+  return placeholderForPost(post.id || 'x');
+}
 
 type Author = {
   id: string;
@@ -29,6 +54,7 @@ type Author = {
 type Post = {
   id: string;
   description: string;
+  imageUrl?: string | null;
   author: Author | null;
   likes: { id: string; user?: Author | null }[];
   comments: { id: string; content: string; author?: Author | null; user?: Author | null; createdAt?: string }[];
@@ -61,10 +87,13 @@ export default function Community() {
   const [loading, setLoading] = useState(false);
 
   const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [managePost, setManagePost] = useState<Post | null>(null);
   const [commentModalVisible, setCommentModalVisible] = useState(false);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [commentContent, setCommentContent] = useState('');
   const [postDescription, setPostDescription] = useState('');
+  const [postImageUri, setPostImageUri] = useState<string | null>(null);
   const [highlightPostId, setHighlightPostId] = useState<string | null>(null);
 
   const [newChatVisible, setNewChatVisible] = useState(false);
@@ -102,6 +131,7 @@ export default function Community() {
     const items = Array.isArray(payload) ? payload : payload?.items || [];
     return items.map((post: any) => ({
       ...post,
+      imageUrl: post.imageUrl || post.image_url || null,
       author: post.author || post.user || null,
       likes: post.likes || [],
       comments: (post.comments || []).map((c: any) => ({
@@ -345,7 +375,110 @@ export default function Community() {
     }
   };
 
-  const handleCreatePost = async () => {
+  const pickPostImage = async () => {
+    try {
+      if (Platform.OS !== 'web') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          setStatusModal({
+            visible: true,
+            type: 'info',
+            title: 'Permission needed',
+            message: 'Allow photo access to add a cover image to your post.',
+          });
+          return;
+        }
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: Platform.OS !== 'web',
+        aspect: [4, 5],
+        quality: 0.85,
+      });
+
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        setPostImageUri(result.assets[0].uri);
+      }
+    } catch (error: any) {
+      setStatusModal({
+        visible: true,
+        type: 'error',
+        title: 'Picker failed',
+        message: error?.message || 'Could not open the image picker.',
+      });
+    }
+  };
+
+  const closeComposer = () => {
+    setCreateModalVisible(false);
+    setEditingPostId(null);
+    setPostDescription('');
+    setPostImageUri(null);
+  };
+
+  const openCreatePost = () => {
+    setEditingPostId(null);
+    setPostDescription('');
+    setPostImageUri(null);
+    setCreateModalVisible(true);
+  };
+
+  const openEditPost = (post: Post) => {
+    setManagePost(null);
+    setCommentModalVisible(false);
+    setEditingPostId(post.id);
+    setPostDescription(post.description || '');
+    setPostImageUri(post.imageUrl || null);
+    setCreateModalVisible(true);
+  };
+
+  const confirmDeletePost = async (post: Post) => {
+    const runDelete = async () => {
+      try {
+        await authApi.deletePost(post.id);
+        setPosts((prev) => prev.filter((p) => p.id !== post.id));
+        setManagePost(null);
+        if (selectedPost?.id === post.id) {
+          setCommentModalVisible(false);
+          setSelectedPost(null);
+        }
+        setStatusModal({
+          visible: true,
+          type: 'success',
+          title: 'Deleted',
+          message: 'Your post was removed.',
+        });
+      } catch (error: any) {
+        setStatusModal({
+          visible: true,
+          type: 'error',
+          title: 'Delete failed',
+          message: error.message || 'Could not delete post',
+        });
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.confirm('Delete this post? This cannot be undone.')) {
+        await runDelete();
+      }
+      return;
+    }
+
+    Alert.alert('Delete post?', 'This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          void runDelete();
+        },
+      },
+    ]);
+  };
+
+  const handleSavePost = async () => {
     if (!postDescription.trim()) {
       setStatusModal({
         visible: true,
@@ -355,53 +488,68 @@ export default function Community() {
       });
       return;
     }
-    setLoading(true);
-    try {
-      const post = await authApi.createPost({ description: postDescription.trim() });
-      const normalized = normalizePosts([post])[0];
-      setPosts((prev) => (prev.some((p) => p.id === normalized.id) ? prev : [normalized, ...prev]));
-      setCreateModalVisible(false);
-      setPostDescription('');
+
+    const isEditing = !!editingPostId;
+    if (!isEditing && !postImageUri) {
       setStatusModal({
         visible: true,
-        type: 'success',
-        title: 'Posted',
-        message: 'Your update is live in the feed.',
+        type: 'info',
+        title: 'Cover image required',
+        message:
+          'Add one image that represents this post. It will appear in Latest Update on the dashboard.',
       });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      if (isEditing) {
+        const isRemoteImage =
+          !!postImageUri &&
+          (postImageUri.startsWith('http://') || postImageUri.startsWith('https://'));
+        const updated = await authApi.updatePost(editingPostId!, {
+          description: postDescription.trim(),
+          imageUri: isRemoteImage ? null : postImageUri,
+        });
+        const normalized = normalizePosts([updated])[0];
+        setPosts((prev) => prev.map((p) => (p.id === normalized.id ? normalized : p)));
+        if (selectedPost?.id === normalized.id) {
+          setSelectedPost(normalized);
+        }
+        closeComposer();
+        setStatusModal({
+          visible: true,
+          type: 'success',
+          title: 'Updated',
+          message: 'Your post was updated.',
+        });
+      } else {
+        const post = await authApi.createPost({
+          description: postDescription.trim(),
+          imageUri: postImageUri!,
+        });
+        const normalized = normalizePosts([post])[0];
+        setPosts((prev) =>
+          prev.some((p) => p.id === normalized.id) ? prev : [normalized, ...prev],
+        );
+        closeComposer();
+        setStatusModal({
+          visible: true,
+          type: 'success',
+          title: 'Posted',
+          message: 'Your update is live in the feed.',
+        });
+      }
     } catch (error: any) {
       setStatusModal({
         visible: true,
         type: 'error',
         title: 'Failed',
-        message: error.message || 'Could not create post',
+        message: error.message || (isEditing ? 'Could not update post' : 'Could not create post'),
       });
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleDeletePost = (post: Post) => {
-    if (post.author?.id !== userData?.id) return;
-    Alert.alert('Delete post?', 'This cannot be undone.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await authApi.deletePost(post.id);
-            setPosts((prev) => prev.filter((p) => p.id !== post.id));
-          } catch (error: any) {
-            setStatusModal({
-              visible: true,
-              type: 'error',
-              title: 'Delete failed',
-              message: error.message || 'Could not delete post',
-            });
-          }
-        },
-      },
-    ]);
   };
 
   const searchUsers = (q: string) => {
@@ -532,14 +680,14 @@ export default function Community() {
       {communityTab === 'Feed' && (
         <TouchableOpacity
           style={styles.addPostCard}
-          onPress={() => setCreateModalVisible(true)}
+          onPress={openCreatePost}
           activeOpacity={0.9}
         >
           <Image source={avatar(userData?.profileImage)} style={styles.composerAvatar} />
           <View style={styles.composerPill}>
-            <Text style={styles.composerPlaceholder}>Share an update or ask for advice...</Text>
+            <Text style={styles.composerPlaceholder}>Share a photo update...</Text>
           </View>
-          <Ionicons name="create-outline" size={22} color="#166534" />
+          <Ionicons name="camera-outline" size={22} color="#166534" />
         </TouchableOpacity>
       )}
 
@@ -561,8 +709,8 @@ export default function Community() {
             </View>
           ) : posts.length === 0 ? (
             <View style={styles.emptyState}>
-              <Ionicons name="people-outline" size={60} color="#ccc" />
-              <Text style={styles.emptyStateText}>No posts yet. Be the first to share!</Text>
+              <Ionicons name="images-outline" size={60} color="#ccc" />
+              <Text style={styles.emptyStateText}>No posts yet. Share the first photo update!</Text>
             </View>
           ) : (
             posts.map((post) => {
@@ -570,18 +718,22 @@ export default function Community() {
                 post.likedByMe ||
                 post.likes.some((like) => like.user?.id === userData?.id);
               const isHighlighted = highlightPostId === post.id;
+              const hasRealImage = !!post.imageUrl;
+              const isMine = post.author?.id === userData?.id;
               return (
-                <TouchableOpacity
+                <View
                   key={post.id}
-                  activeOpacity={0.92}
-                  onPress={() => openPostDetail(post)}
                   onLayout={(e) => {
                     postOffsets.current[post.id] = e.nativeEvent.layout.y;
                   }}
                   style={[styles.postCard, isHighlighted && styles.postCardHighlight]}
                 >
                   <View style={styles.postHeader}>
-                    <View style={styles.authorInfo}>
+                    <TouchableOpacity
+                      style={[styles.authorInfo, { flex: 1 }]}
+                      activeOpacity={0.85}
+                      onPress={() => openPostDetail(post)}
+                    >
                       <Image
                         source={avatar(post.author?.profileImage)}
                         style={styles.profilePic}
@@ -592,29 +744,33 @@ export default function Community() {
                         </Text>
                         <Text style={styles.timeAgo}>{timeAgo(post.createdAt)}</Text>
                       </View>
-                    </View>
-                    {post.author?.id === userData?.id && (
-                      <TouchableOpacity onPress={() => handleDeletePost(post)}>
-                        <Ionicons name="trash-outline" size={18} color="#999" />
+                    </TouchableOpacity>
+                    {isMine ? (
+                      <TouchableOpacity
+                        hitSlop={14}
+                        onPress={() => setManagePost(post)}
+                        accessibilityLabel="Manage post"
+                      >
+                        <Ionicons name="ellipsis-horizontal" size={22} color="#374151" />
                       </TouchableOpacity>
-                    )}
+                    ) : null}
                   </View>
 
-                  <Text style={styles.postContent} numberOfLines={6}>
-                    {post.description}
-                  </Text>
-                  {post.description?.length > 220 && (
-                    <Text style={styles.readMore}>Read more</Text>
-                  )}
-
-                  <View style={styles.engagementStats}>
-                    <Text style={styles.statText}>
-                      {post.likeCount ?? post.likes.length} Likes
-                    </Text>
-                    <Text style={styles.statText}>
-                      {post.commentCount ?? post.comments.length} Comments
-                    </Text>
-                  </View>
+                  <TouchableOpacity activeOpacity={0.95} onPress={() => openPostDetail(post)}>
+                    <View style={styles.postCoverWrap}>
+                      <Image
+                        source={postCoverSource(post)}
+                        style={styles.postCover}
+                        resizeMode="cover"
+                      />
+                      {!hasRealImage && (
+                        <View style={styles.placeholderBadge}>
+                          <Ionicons name="image-outline" size={12} color="#fff" />
+                          <Text style={styles.placeholderBadgeText}>Preview</Text>
+                        </View>
+                      )}
+                    </View>
+                  </TouchableOpacity>
 
                   <View style={styles.actionButtons}>
                     <TouchableOpacity
@@ -622,32 +778,54 @@ export default function Community() {
                       onPress={() => handleLikePost(post.id)}
                     >
                       <Ionicons
-                        name={liked ? 'thumbs-up' : 'thumbs-up-outline'}
-                        size={20}
-                        color={liked ? '#166534' : '#666'}
+                        name={liked ? 'heart' : 'heart-outline'}
+                        size={22}
+                        color={liked ? '#DC2626' : '#374151'}
                       />
-                      <Text style={[styles.actionText, liked && styles.actionTextActive]}>
-                        Like
+                      <Text style={[styles.actionText, liked && styles.actionTextLiked]}>
+                        {post.likeCount ?? post.likes.length}
                       </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.actionButton}
                       onPress={() => openPostDetail(post)}
                     >
-                      <Ionicons name="chatbubble-outline" size={20} color="#666" />
-                      <Text style={styles.actionText}>Comment</Text>
+                      <Ionicons name="chatbubble-outline" size={20} color="#374151" />
+                      <Text style={styles.actionText}>
+                        {post.commentCount ?? post.comments.length}
+                      </Text>
                     </TouchableOpacity>
-                    {post.author?.id && post.author.id !== userData?.id && (
+                    {isMine ? (
+                      <TouchableOpacity
+                        style={styles.actionButton}
+                        onPress={() => setManagePost(post)}
+                      >
+                        <Ionicons name="create-outline" size={20} color="#166534" />
+                        <Text style={[styles.actionText, { color: '#166534' }]}>Edit</Text>
+                      </TouchableOpacity>
+                    ) : post.author?.id ? (
                       <TouchableOpacity
                         style={styles.actionButton}
                         onPress={() => openDirectChat(post.author!.id)}
                       >
-                        <Ionicons name="paper-plane-outline" size={20} color="#666" />
+                        <Ionicons name="paper-plane-outline" size={20} color="#374151" />
                         <Text style={styles.actionText}>Message</Text>
                       </TouchableOpacity>
-                    )}
+                    ) : null}
                   </View>
-                </TouchableOpacity>
+
+                  <TouchableOpacity activeOpacity={0.9} onPress={() => openPostDetail(post)}>
+                    <Text style={styles.postContent} numberOfLines={3}>
+                      <Text style={styles.captionAuthor}>
+                        {post.author?.username || 'Farmer'}{' '}
+                      </Text>
+                      {post.description}
+                    </Text>
+                    {post.description?.length > 120 && (
+                      <Text style={styles.readMore}>Read more</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
               );
             })
           )}
@@ -727,18 +905,50 @@ export default function Community() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>New Post</Text>
-              <TouchableOpacity onPress={() => setCreateModalVisible(false)}>
+              <Text style={styles.modalTitle}>
+                {editingPostId ? 'Edit Post' : 'New Post'}
+              </Text>
+              <TouchableOpacity onPress={closeComposer}>
                 <Ionicons name="close" size={24} color="#333" />
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalBody}>
               <Text style={styles.addPostSubtitleModal}>
-                Text-only for now — share advice, harvest updates, or questions.
+                {editingPostId
+                  ? 'Update your photo or caption.'
+                  : 'Posts are photo-first — add a cover image, then write a short caption.'}
               </Text>
+
+              {postImageUri ? (
+                <View style={styles.postImagePreviewWrap}>
+                  <Image source={{ uri: postImageUri }} style={styles.postImagePreview} />
+                  <TouchableOpacity
+                    style={styles.removeImageBtn}
+                    onPress={() => setPostImageUri(null)}
+                  >
+                    <Ionicons name="close-circle" size={26} color="#fff" />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.changeImageBtn} onPress={pickPostImage}>
+                    <Text style={styles.changeImageText}>Change image</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity style={styles.pickImageBtn} onPress={pickPostImage}>
+                  <View style={styles.pickImageIconCircle}>
+                    <Ionicons name="camera" size={28} color="#166534" />
+                  </View>
+                  <Text style={styles.pickImageText}>
+                    {editingPostId ? 'Add / replace cover image' : 'Upload cover image'}
+                  </Text>
+                  <Text style={styles.pickImageHint}>
+                    {Platform.OS === 'web' ? 'Click to choose a photo' : 'Tap to choose from gallery'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+
               <TextInput
                 style={styles.descriptionInput}
-                placeholder="Write your post..."
+                placeholder="Write a caption..."
                 placeholderTextColor="#999"
                 multiline
                 value={postDescription}
@@ -746,13 +956,15 @@ export default function Community() {
               />
               <TouchableOpacity
                 style={[styles.postBtn, loading && styles.postBtnDisabled]}
-                onPress={handleCreatePost}
+                onPress={handleSavePost}
                 disabled={loading}
               >
                 {loading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.postBtnText}>Post</Text>
+                  <Text style={styles.postBtnText}>
+                    {editingPostId ? 'Save changes' : 'Share post'}
+                  </Text>
                 )}
               </TouchableOpacity>
             </ScrollView>
@@ -766,9 +978,16 @@ export default function Community() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Post</Text>
-              <TouchableOpacity onPress={() => setCommentModalVisible(false)}>
-                <Ionicons name="close" size={24} color="#333" />
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                {selectedPost?.author?.id === userData?.id && (
+                  <TouchableOpacity onPress={() => setManagePost(selectedPost)}>
+                    <Ionicons name="ellipsis-horizontal" size={22} color="#333" />
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={() => setCommentModalVisible(false)}>
+                  <Ionicons name="close" size={24} color="#333" />
+                </TouchableOpacity>
+              </View>
             </View>
             <ScrollView style={styles.modalBody}>
               {selectedPost && (
@@ -785,6 +1004,11 @@ export default function Community() {
                       <Text style={styles.timeAgo}>{timeAgo(selectedPost.createdAt)}</Text>
                     </View>
                   </View>
+                  <Image
+                    source={postCoverSource(selectedPost)}
+                    style={styles.postDetailCover}
+                    resizeMode="cover"
+                  />
                   <Text style={styles.postDetailText}>{selectedPost.description}</Text>
                   <View style={styles.engagementStats}>
                     <Text style={styles.statText}>
@@ -937,6 +1161,44 @@ export default function Community() {
         </View>
       </Modal>
 
+      {/* Manage own post: Edit / Delete */}
+      <Modal visible={!!managePost} animationType="fade" transparent>
+        <TouchableOpacity
+          style={styles.manageOverlay}
+          activeOpacity={1}
+          onPress={() => setManagePost(null)}
+        >
+          <View
+            style={styles.manageSheet}
+            onStartShouldSetResponder={() => true}
+          >
+            <Text style={styles.manageTitle}>Manage post</Text>
+            <TouchableOpacity
+              style={styles.manageAction}
+              onPress={() => managePost && openEditPost(managePost)}
+            >
+              <Ionicons name="create-outline" size={20} color="#166534" />
+              <Text style={styles.manageActionText}>Edit post</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.manageAction}
+              onPress={() => managePost && confirmDeletePost(managePost)}
+            >
+              <Ionicons name="trash-outline" size={20} color="#DC2626" />
+              <Text style={[styles.manageActionText, { color: '#DC2626' }]}>
+                Delete post
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.manageAction, styles.manageCancel]}
+              onPress={() => setManagePost(null)}
+            >
+              <Text style={styles.manageCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       <StatusModal
         visible={statusModal.visible}
         type={statusModal.type}
@@ -1036,6 +1298,152 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     fontSize: 14,
     lineHeight: 20,
+    color: '#1F2937',
+  },
+  captionAuthor: {
+    fontWeight: '800',
+    color: '#111827',
+  },
+  postCoverWrap: {
+    width: '100%',
+    backgroundColor: '#E5E7EB',
+    position: 'relative',
+  },
+  postCover: {
+    width: '100%',
+    height: FEED_CARD_WIDTH * 1.15,
+    backgroundColor: '#E5E7EB',
+  },
+  placeholderBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  placeholderBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  postDetailCover: {
+    width: '100%',
+    aspectRatio: 4 / 5,
+    minHeight: 220,
+    marginTop: 12,
+    marginBottom: 8,
+    borderRadius: 12,
+    backgroundColor: '#E5E7EB',
+  },
+  pickImageBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1.5,
+    borderColor: '#166534',
+    borderStyle: 'dashed',
+    borderRadius: 16,
+    paddingVertical: 28,
+    marginBottom: 16,
+    backgroundColor: '#F0FDF4',
+  },
+  pickImageIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  pickImageText: {
+    color: '#166534',
+    fontWeight: '800',
+    fontSize: 15,
+  },
+  pickImageHint: {
+    color: '#6B7280',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  postImagePreviewWrap: {
+    position: 'relative',
+    marginBottom: 16,
+  },
+  postImagePreview: {
+    width: '100%',
+    height: 240,
+    borderRadius: 12,
+    backgroundColor: '#E5E7EB',
+  },
+  removeImageBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderRadius: 14,
+  },
+  changeImageBtn: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: '#F0FDF4',
+  },
+  changeImageText: {
+    color: '#166534',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  manageOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  manageSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 28,
+  },
+  manageTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  manageAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  manageActionText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#166534',
+  },
+  manageCancel: {
+    borderBottomWidth: 0,
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+  manageCancelText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#6B7280',
+    textAlign: 'center',
+    width: '100%',
   },
   readMore: {
     paddingHorizontal: 12,
@@ -1081,8 +1489,9 @@ const styles = StyleSheet.create({
     borderTopColor: '#f0f0f0',
   },
   actionButton: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  actionText: { color: '#666', fontSize: 14 },
+  actionText: { color: '#374151', fontSize: 13, fontWeight: '700' },
   actionTextActive: { color: '#166534', fontWeight: '700' },
+  actionTextLiked: { color: '#DC2626', fontWeight: '800' },
   messageList: { padding: 16, gap: 10 },
   messageItem: {
     flexDirection: 'row',
