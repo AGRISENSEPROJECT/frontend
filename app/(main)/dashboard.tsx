@@ -1051,13 +1051,25 @@ const dashStyles = StyleSheet.create({
     chip: {
         paddingHorizontal: 14,
         paddingVertical: 10,
-        borderRadius: 10,
-        backgroundColor: '#E5E7EB',
+        borderRadius: 999,
+        backgroundColor: '#fff',
         marginRight: 8,
+        borderWidth: 1.5,
+        borderColor: '#D1D5DB',
+        minHeight: 40,
+        justifyContent: 'center',
     },
-    chipActive: { backgroundColor: '#34643F' },
-    chipText: { color: '#374151', fontWeight: '700', fontSize: 13 },
-    chipTextActive: { color: '#fff' },
+    chipActive: {
+        backgroundColor: '#0B4D26',
+        borderColor: '#0B4D26',
+        shadowColor: '#0B4D26',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    chipText: { color: '#4B5563', fontWeight: '700', fontSize: 13 },
+    chipTextActive: { color: '#fff', fontWeight: '800' },
 });
 
 const styles = StyleSheet.create({

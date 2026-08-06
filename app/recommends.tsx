@@ -556,9 +556,22 @@ export default function Recommends() {
                                         setActiveType(category.type);
                                         setChoiceIndex(0);
                                     }}
+                                    activeOpacity={0.88}
                                     style={[styles.iconTab, isActive && styles.iconTabActive]}
                                 >
-                                    <Ionicons name={category.icon} size={24} color={isActive ? '#34643F' : '#fff'} />
+                                    <View style={[styles.iconTabInner, isActive && styles.iconTabInnerActive]}>
+                                        <Ionicons
+                                            name={category.icon}
+                                            size={20}
+                                            color={isActive ? '#0B4D26' : 'rgba(255,255,255,0.85)'}
+                                        />
+                                    </View>
+                                    <Text
+                                        style={[styles.iconTabLabel, isActive && styles.iconTabLabelActive]}
+                                        numberOfLines={1}
+                                    >
+                                        {category.type === 'disease' ? 'Pests' : category.type.charAt(0).toUpperCase() + category.type.slice(1)}
+                                    </Text>
                                 </TouchableOpacity>
                             );
                         })}
@@ -737,14 +750,52 @@ export default function Recommends() {
 }
 
 const styles = StyleSheet.create({
-    screen: { flex: 1, backgroundColor: '#34643F' },
-    header: { backgroundColor: '#34643F', paddingHorizontal: 16, paddingTop: 48, paddingBottom: 20 },
+    screen: { flex: 1, backgroundColor: '#0B4D26' },
+    header: { backgroundColor: '#0B4D26', paddingHorizontal: 16, paddingTop: 48, paddingBottom: 16 },
     headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     headerBtn: { padding: 8, marginHorizontal: -8 },
     headerTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
-    iconTabs: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16, paddingHorizontal: 4 },
-    iconTab: { width: 48, height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-    iconTabActive: { backgroundColor: '#fff' },
+    iconTabs: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginTop: 14,
+        gap: 4,
+    },
+    iconTab: {
+        flex: 1,
+        alignItems: 'center',
+        paddingVertical: 6,
+        borderRadius: 14,
+    },
+    iconTabActive: {
+        backgroundColor: 'rgba(255,255,255,0.12)',
+    },
+    iconTabInner: {
+        width: 42,
+        height: 42,
+        borderRadius: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(255,255,255,0.12)',
+    },
+    iconTabInnerActive: {
+        backgroundColor: '#fff',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.12,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    iconTabLabel: {
+        marginTop: 5,
+        color: 'rgba(255,255,255,0.7)',
+        fontSize: 10,
+        fontWeight: '700',
+    },
+    iconTabLabelActive: {
+        color: '#fff',
+        fontWeight: '800',
+    },
     sheet: {
         flex: 1,
         backgroundColor: '#F8F8F0',
@@ -756,17 +807,21 @@ const styles = StyleSheet.create({
     farmChip: {
         flexDirection: 'row',
         alignItems: 'center',
-        height: 34,
-        paddingHorizontal: 14,
+        height: 36,
+        paddingHorizontal: 12,
         borderRadius: 999,
         backgroundColor: '#fff',
-        borderWidth: 1,
+        borderWidth: 1.5,
         borderColor: '#D1D5DB',
         marginRight: 8,
+        gap: 6,
     },
-    farmChipActive: { backgroundColor: '#34643F', borderColor: '#34643F' },
-    farmChipText: { marginLeft: 4, fontSize: 13, fontWeight: '600', color: '#374151' },
-    farmChipTextActive: { color: '#fff' },
+    farmChipActive: {
+        backgroundColor: '#0B4D26',
+        borderColor: '#0B4D26',
+    },
+    farmChipText: { color: '#4B5563', fontWeight: '700', fontSize: 13 },
+    farmChipTextActive: { color: '#fff', fontWeight: '800' },
     historyBox: {
         backgroundColor: '#fff',
         borderRadius: 16,
@@ -814,8 +869,8 @@ const styles = StyleSheet.create({
         marginRight: 8,
     },
     historyChipActive: {
-        backgroundColor: '#34643F',
-        borderColor: '#34643F',
+        backgroundColor: '#0B4D26',
+        borderColor: '#0B4D26',
     },
     historyChipTitle: {
         color: '#374151',
@@ -839,13 +894,20 @@ const styles = StyleSheet.create({
     choiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
     choicePill: {
         paddingHorizontal: 14,
-        paddingVertical: 8,
+        paddingVertical: 9,
         borderRadius: 999,
-        backgroundColor: '#E8EDE9',
+        backgroundColor: '#fff',
+        borderWidth: 1.5,
+        borderColor: '#D1D5DB',
+        minHeight: 38,
+        justifyContent: 'center',
     },
-    choicePillActive: { backgroundColor: '#34643F' },
+    choicePillActive: {
+        backgroundColor: '#0B4D26',
+        borderColor: '#0B4D26',
+    },
     choiceText: { fontSize: 13, fontWeight: '700', color: '#4B5563' },
-    choiceTextActive: { color: '#fff' },
+    choiceTextActive: { color: '#fff', fontWeight: '800' },
     emptyBox: {
         alignItems: 'center',
         paddingVertical: 40,

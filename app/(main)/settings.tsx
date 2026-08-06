@@ -62,7 +62,15 @@ export default function Settings() {
             const token = await AsyncStorage.getItem('token');
             if (!token) return;
 
-            await authApi.updateProfile({ username, phoneNumber }, token);
+            await authApi.updateProfile(
+                {
+                    username,
+                    ...(phoneNumber.trim()
+                        ? { phoneNumber: phoneNumber.trim() }
+                        : {}),
+                },
+                token,
+            );
             showStatus('success', 'Success', 'Profile updated successfully');
             loadProfile();
         } catch (error: any) {

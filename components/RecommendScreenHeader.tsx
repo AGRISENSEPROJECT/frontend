@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import NotificationBell from '@/components/NotificationBell';
@@ -13,12 +13,16 @@ const ROUTES: Record<RecommendCategory, string> = {
   weather: '/WeatherRecommendation',
 };
 
-const TABS: { key: RecommendCategory; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { key: 'crop', icon: 'leaf' },
-  { key: 'irrigation', icon: 'water' },
-  { key: 'pest', icon: 'bug' },
-  { key: 'fertilizer', icon: 'nutrition' },
-  { key: 'weather', icon: 'rainy' },
+const TABS: {
+  key: RecommendCategory;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+}[] = [
+  { key: 'crop', icon: 'leaf', label: 'Crop' },
+  { key: 'irrigation', icon: 'water', label: 'Water' },
+  { key: 'pest', icon: 'bug', label: 'Pests' },
+  { key: 'fertilizer', icon: 'nutrition', label: 'Fertilizer' },
+  { key: 'weather', icon: 'rainy', label: 'Weather' },
 ];
 
 interface RecommendScreenHeaderProps {
@@ -29,17 +33,20 @@ export function RecommendScreenHeader({ activeCategory }: RecommendScreenHeaderP
   const router = useRouter();
 
   return (
-    <View className="bg-[#34643F] pt-12 pb-0 px-4">
-      <View className="flex-row justify-between items-center pb-3">
-        <TouchableOpacity onPress={() => router.replace('/(main)/dashboard')} className="p-2 -ml-2">
+    <View style={styles.header}>
+      <View style={styles.topRow}>
+        <TouchableOpacity
+          onPress={() => router.replace('/(main)/dashboard')}
+          style={styles.iconBtn}
+        >
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text className="text-white text-lg font-semibold">Recommends</Text>
+        <Text style={styles.title}>Recommends</Text>
         <NotificationBell color="#fff" size={24} />
       </View>
-      {/* Lighter green category bar */}
-      <View className="bg-[#4A7C59] flex-row justify-center items-center gap-3 py-3 rounded-t-2xl">
-        {TABS.map(({ key, icon }) => {
+
+      <View style={styles.tabs}>
+        {TABS.map(({ key, icon, label }) => {
           const isActive = activeCategory === key;
           return (
             <TouchableOpacity
@@ -48,13 +55,19 @@ export function RecommendScreenHeader({ activeCategory }: RecommendScreenHeaderP
                 if (isActive) return;
                 router.push(ROUTES[key] as any);
               }}
-              className={`w-10 h-10 rounded-full items-center justify-center ${isActive ? 'bg-[#34643F]' : 'bg-white/10'}`}
+              activeOpacity={0.88}
+              style={[styles.tab, isActive && styles.tabActive]}
             >
-              <Ionicons
-                name={isActive ? icon : `${icon}-outline` as any}
-                size={20}
-                color="#fff"
-              />
+              <View style={[styles.tabIcon, isActive && styles.tabIconActive]}>
+                <Ionicons
+                  name={(isActive ? icon : `${icon}-outline`) as any}
+                  size={18}
+                  color={isActive ? '#0B4D26' : 'rgba(255,255,255,0.9)'}
+                />
+              </View>
+              <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]} numberOfLines={1}>
+                {label}
+              </Text>
             </TouchableOpacity>
           );
         })}
@@ -62,3 +75,54 @@ export function RecommendScreenHeader({ activeCategory }: RecommendScreenHeaderP
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  header: {
+    backgroundColor: '#0B4D26',
+    paddingTop: 48,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 10,
+  },
+  iconBtn: { padding: 8, marginLeft: -8 },
+  title: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  tabs: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  tab: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderRadius: 14,
+  },
+  tabActive: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  tabIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  tabIconActive: {
+    backgroundColor: '#fff',
+  },
+  tabLabel: {
+    marginTop: 4,
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  tabLabelActive: {
+    color: '#fff',
+    fontWeight: '800',
+  },
+});

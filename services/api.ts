@@ -143,9 +143,14 @@ export const authApi = {
 
     updateProfile: async (data: { username?: string; phoneNumber?: string }, token: string): Promise<any> => {
         // Backend exposes PUT /api/auth/profile (PATCH returns 404)
+        // Omit blank phone so profile updates work without a number.
+        const payload: { username?: string; phoneNumber?: string } = {};
+        if (data.username?.trim()) payload.username = data.username.trim();
+        if (data.phoneNumber?.trim()) payload.phoneNumber = data.phoneNumber.trim();
+
         return await authenticatedFetch(authApi.endpoints.updateProfile, {
             method: 'PUT',
-            body: JSON.stringify(data),
+            body: JSON.stringify(payload),
         });
     },
 

@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { authApi, userHasFarm } from '@/services/api';
 import StatusModal from '@/components/ui/StatusModal';
+import ENV from '@/config/env';
 
 export default function SignIn() {
     const router = useRouter();
@@ -63,6 +64,9 @@ export default function SignIn() {
                     await AsyncStorage.setItem('refreshToken', data.refresh_token);
                 }
                 await AsyncStorage.setItem('user', JSON.stringify(data.user));
+                if (ENV.API_URL) {
+                    await AsyncStorage.setItem('api_url_bound', ENV.API_URL);
+                }
 
                 // Navigate based on user state
                 if (userHasFarm(data.user)) {
