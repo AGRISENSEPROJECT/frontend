@@ -414,6 +414,12 @@ export default function RegisterFarm() {
                 </TouchableOpacity>
             </View>
 
+            {phase === 'identity' ? (
+                <Text style={styles.skipHint}>
+                    You can explore the app now. We'll remind you to verify your National ID before full farm onboarding.
+                </Text>
+            ) : null}
+
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 {phase === 'identity' && (
                     <View>
@@ -746,6 +752,14 @@ const styles = StyleSheet.create({
         color: '#6B7280',
         fontSize: 14,
         fontWeight: '500',
+    },
+    skipHint: {
+        paddingHorizontal: 20,
+        paddingBottom: 8,
+        color: '#6B7280',
+        fontSize: 12,
+        fontWeight: '500',
+        lineHeight: 17,
     },
     scrollContent: {
         paddingHorizontal: 30,

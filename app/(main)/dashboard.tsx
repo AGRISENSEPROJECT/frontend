@@ -21,6 +21,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authApi, predictionsApi, userHasFarm } from '@/services/api';
 import PayloadRows, { formatValue, formatEntry, humanize, HIDDEN_KEYS } from '@/components/recommendations/PayloadRows';
 import NotificationBell from '@/components/NotificationBell';
+import OnboardingBanner from '@/components/OnboardingBanner';
 import { useNotifications } from '@/context/NotificationContext';
 import { hasSeenPredictionRun, markPredictionRunSeen, timeAgoShort } from '@/services/notifications';
 import { DashboardSkeleton } from '@/components/ui/Skeleton';
@@ -299,6 +300,8 @@ export default function Dashboard() {
     const recsOfType = (type: string) => recommendations.filter(rec => rec.type === type);
     const summary = latestRun?.predictionSummary || {};
     const soilScan = latestRun?.soilScan || null;
+    const needsIdentity = !!(userData && !userData.nationalIdVerified && !userData.onboardingCompleted);
+    const needsFarm = !userHasFarm(userData) && !farmData;
 
     const EmptyRecommendations = () => (
         <View style={dashStyles.emptyCard}>
@@ -565,6 +568,12 @@ export default function Dashboard() {
                         />
                     </View>
                 </View>
+
+                {(needsIdentity || needsFarm) && (
+                    <View style={dashStyles.section}>
+                        <OnboardingBanner needsIdentity={needsIdentity} needsFarm={needsFarm} />
+                    </View>
+                )}
 
                 {/* Latest community posts */}
                 <View style={dashStyles.section}>
