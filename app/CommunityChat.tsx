@@ -50,8 +50,15 @@ export default function CommunityChat() {
   const [headerAvatar, setHeaderAvatar] = useState<string | null>(null);
   const [conversationType, setConversationType] = useState<'direct' | 'group'>('direct');
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [members, setMembers] = useState<Author[]>([]);
+  const [typingUsers, setTypingUsers] = useState<{ id: string; name: string }[]>([]);
   const insets = useSafeAreaInsets();
   const listRef = useRef<FlatList>(null);
+  const sockRef = useRef<any>(null);
+  const meIdRef = useRef<string | null>(null);
+  const membersRef = useRef<Author[]>([]);
+  const typingStopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isTypingRef = useRef(false);
 
   const loadMessages = useCallback(async () => {
     if (!conversationId) {
@@ -76,6 +83,10 @@ export default function CommunityChat() {
             ? convo.imageUrl || null
             : convo.otherMembers?.[0]?.profileImage || null;
         setHeaderAvatar(avatar);
+        if (Array.isArray(convo.members)) {
+          setMembers(convo.members);
+          membersRef.current = convo.members;
+        }
       }
       await authApi.markConversationRead(conversationId);
     } catch (error) {
@@ -89,7 +100,11 @@ export default function CommunityChat() {
   useEffect(() => {
     (async () => {
       const userJson = await AsyncStorage.getItem('user');
-      if (userJson) setMe(JSON.parse(userJson));
+      if (userJson) {
+        const user = JSON.parse(userJson);
+        setMe(user);
+        meIdRef.current = user?.id || null;
+      }
     })();
     loadMessages();
   }, [loadMessages]);
@@ -116,10 +131,13 @@ export default function CommunityChat() {
     let onNew: ((message: ChatMessage) => void) | null = null;
     let onUpdated: ((message: ChatMessage) => void) | null = null;
     let onDeleted: ((payload: { id: string; conversationId: string }) => void) | null = null;
+    let onTypingStart: ((payload: { conversationId: string; userId: string }) => void) | null = null;
+    let onTypingStop: ((payload: { conversationId: string; userId: string }) => void) | null = null;
 
     (async () => {
       try {
         sock = await getCommunitySocket();
+        sockRef.current = sock;
         sock.emit('conversation:join', { conversationId });
 
         onNew = (message: ChatMessage) => {
@@ -155,23 +173,79 @@ export default function CommunityChat() {
           );
         };
 
+        onTypingStart = (payload) => {
+          if (payload.conversationId !== conversationId) return;
+          if (!payload.userId || payload.userId === meIdRef.current) return;
+          const member = membersRef.current.find((m) => m.id === payload.userId);
+          const name = userDisplayName(member) || 'Someone';
+          setTypingUsers((prev) =>
+            prev.some((u) => u.id === payload.userId)
+              ? prev
+              : [...prev, { id: payload.userId, name }],
+          );
+        };
+
+        onTypingStop = (payload) => {
+          if (payload.conversationId !== conversationId) return;
+          setTypingUsers((prev) => prev.filter((u) => u.id !== payload.userId));
+        };
+
         sock.on('message:new', onNew);
         sock.on('message:updated', onUpdated);
         sock.on('message:deleted', onDeleted);
+        sock.on('typing:start', onTypingStart);
+        sock.on('typing:stop', onTypingStop);
       } catch (error) {
         console.warn('Chat socket unavailable', error);
       }
     })();
 
     return () => {
+      if (typingStopTimer.current) clearTimeout(typingStopTimer.current);
+      if (isTypingRef.current && sock) {
+        sock.emit('typing:stop', { conversationId });
+        isTypingRef.current = false;
+      }
       if (sock) {
         sock.emit('conversation:leave', { conversationId });
         if (onNew) sock.off('message:new', onNew);
         if (onUpdated) sock.off('message:updated', onUpdated);
         if (onDeleted) sock.off('message:deleted', onDeleted);
+        if (onTypingStart) sock.off('typing:start', onTypingStart);
+        if (onTypingStop) sock.off('typing:stop', onTypingStop);
       }
+      sockRef.current = null;
     };
   }, [conversationId]);
+
+  const stopTyping = useCallback(() => {
+    if (!conversationId || !isTypingRef.current) return;
+    isTypingRef.current = false;
+    if (typingStopTimer.current) {
+      clearTimeout(typingStopTimer.current);
+      typingStopTimer.current = null;
+    }
+    sockRef.current?.emit('typing:stop', { conversationId });
+  }, [conversationId]);
+
+  const notifyTyping = useCallback(() => {
+    if (!conversationId) return;
+    if (!isTypingRef.current) {
+      isTypingRef.current = true;
+      sockRef.current?.emit('typing:start', { conversationId });
+    }
+    if (typingStopTimer.current) clearTimeout(typingStopTimer.current);
+    typingStopTimer.current = setTimeout(() => stopTyping(), 1800);
+  }, [conversationId, stopTyping]);
+
+  const typingLabel = (() => {
+    if (typingUsers.length === 0) return '';
+    if (typingUsers.length === 1) return `${typingUsers[0].name} is typing…`;
+    if (typingUsers.length === 2) {
+      return `${typingUsers[0].name} and ${typingUsers[1].name} are typing…`;
+    }
+    return 'Several people are typing…';
+  })();
 
   const cancelEdit = () => {
     setEditingMessageId(null);
@@ -181,6 +255,7 @@ export default function CommunityChat() {
   const send = async () => {
     if (!conversationId || !input.trim() || sending) return;
     const content = input.trim();
+    stopTyping();
     setSending(true);
     try {
       if (editingMessageId) {
@@ -356,8 +431,9 @@ export default function CommunityChat() {
             <Text style={styles.headerName} numberOfLines={1}>
               {headerName}
             </Text>
-            <Text style={styles.headerSub}>
-              {conversationType === 'group' ? 'Tap for group info' : 'Tap for info'}
+            <Text style={[styles.headerSub, typingLabel ? styles.headerTyping : null]} numberOfLines={1}>
+              {typingLabel ||
+                (conversationType === 'group' ? 'Tap for group info' : 'Tap for info')}
             </Text>
           </View>
         </TouchableOpacity>
@@ -450,6 +526,9 @@ export default function CommunityChat() {
       )}
 
       <View style={[styles.composer, { paddingBottom: composerBottomPad }]}>
+        {typingLabel ? (
+          <Text style={styles.typingBar}>{typingLabel}</Text>
+        ) : null}
         {editingMessageId ? (
           <View style={styles.editingBar}>
             <Ionicons name="create-outline" size={16} color={colors.brandMid} />
@@ -465,7 +544,11 @@ export default function CommunityChat() {
             placeholder={editingMessageId ? 'Edit message...' : 'Message...'}
             placeholderTextColor={colors.textMuted}
             value={input}
-            onChangeText={setInput}
+            onChangeText={(text) => {
+              setInput(text);
+              if (text.trim() && !editingMessageId) notifyTyping();
+              else stopTyping();
+            }}
             editable={!sending}
             multiline
             maxLength={2000}
@@ -548,6 +631,10 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     marginTop: 1,
+  },
+  headerTyping: {
+    color: '#BBF7D0',
+    fontStyle: 'italic',
   },
   loading: {
     flex: 1,
@@ -675,6 +762,14 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     paddingHorizontal: space.md,
     paddingTop: space.sm,
+  },
+  typingBar: {
+    color: colors.brandMid,
+    fontSize: 12,
+    fontWeight: '700',
+    fontStyle: 'italic',
+    marginBottom: 6,
+    paddingHorizontal: 4,
   },
   editingBar: {
     flexDirection: 'row',

@@ -89,6 +89,10 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
       await clearSession();
       disconnectCommunitySocket();
       onClose();
+      // Drop authenticated screens so hardware/back can't reopen the dashboard.
+      if (typeof router.dismissAll === 'function') {
+        router.dismissAll();
+      }
       router.replace('/signin');
     } catch {
       setStatusModal({

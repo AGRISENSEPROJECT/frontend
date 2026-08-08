@@ -181,6 +181,7 @@ export const authApi = {
         conversationImage: (id: string) => `/api/community/conversations/${id}/image`,
         conversationMessages: (id: string) => `/api/community/conversations/${id}/messages`,
         conversationRead: (id: string) => `/api/community/conversations/${id}/read`,
+        conversationMembers: (id: string) => `/api/community/conversations/${id}/members`,
         communityPresence: '/api/community/presence',
         notifications: '/api/notifications',
         notificationsUnreadCount: '/api/notifications/unread-count',
@@ -697,6 +698,20 @@ export const authApi = {
     leaveConversation: async (id: string): Promise<any> => {
         return await authenticatedFetch(`${authApi.endpoints.conversationById(id)}/leave`, {
             method: 'POST',
+        });
+    },
+
+    addGroupMembers: async (id: string, memberIds: string[]): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.conversationMembers(id), {
+            method: 'POST',
+            body: JSON.stringify({ memberIds }),
+        });
+    },
+
+    removeGroupMembers: async (id: string, memberIds: string[]): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.conversationMembers(id), {
+            method: 'DELETE',
+            body: JSON.stringify({ memberIds }),
         });
     },
 

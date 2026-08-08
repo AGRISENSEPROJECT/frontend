@@ -111,11 +111,7 @@ export default function Signup() {
     };
 
     const handleBackPress = () => {
-        if (router.canGoBack()) {
-            router.back();
-        } else {
-            router.replace('/');
-        }
+        router.replace('/');
     };
 
     return (

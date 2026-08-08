@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Platform,
   Alert,
+  Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -46,9 +47,17 @@ export default function ContactProfile() {
   const [meId, setMeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [addingMembers, setAddingMembers] = useState(false);
+  const [addMembersVisible, setAddMembersVisible] = useState(false);
+  const [userQuery, setUserQuery] = useState('');
+  const [userResults, setUserResults] = useState<Author[]>([]);
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [searchingUsers, setSearchingUsers] = useState(false);
   const [conversation, setConversation] = useState<ConversationDetail | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [groupName, setGroupName] = useState('');
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [statusModal, setStatusModal] = useState({
     visible: false,
     type: 'error' as 'error' | 'success' | 'info',
@@ -89,7 +98,10 @@ export default function ContactProfile() {
   const displayName =
     conversation?.name || (params.name as string) || (isGroup ? 'Group' : 'Farmer');
   const avatarUri = isGroup ? conversation?.imageUrl : other?.profileImage;
-  const canManageGroup = isGroup && !!meId && conversation?.createdById === meId;
+  const canManageGroup =
+    isGroup &&
+    !!meId &&
+    (!conversation?.createdById || conversation.createdById === meId);
 
   const avatarSource = avatarUri
     ? { uri: avatarUri }
@@ -146,7 +158,7 @@ export default function ContactProfile() {
       });
       if (result.canceled || !result.assets?.[0]?.uri) return;
 
-      setSaving(true);
+      setUploadingPhoto(true);
       const updated = await authApi.uploadGroupImage(
         conversationId,
         result.assets[0].uri,
@@ -166,7 +178,68 @@ export default function ContactProfile() {
         message: error?.message || 'Could not update group photo.',
       });
     } finally {
-      setSaving(false);
+      setUploadingPhoto(false);
+    }
+  };
+
+  const existingMemberIds = new Set((conversation?.members || []).map((m) => m.id));
+
+  const searchUsers = (q: string) => {
+    setUserQuery(q);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(async () => {
+      setSearchingUsers(true);
+      try {
+        const users = await authApi.searchCommunityUsers(q);
+        const list = Array.isArray(users) ? users : [];
+        setUserResults(list.filter((u: Author) => u.id && !existingMemberIds.has(u.id)));
+      } catch {
+        setUserResults([]);
+      } finally {
+        setSearchingUsers(false);
+      }
+    }, 250);
+  };
+
+  const openAddMembers = () => {
+    setSelectedMemberIds([]);
+    setUserQuery('');
+    setUserResults([]);
+    setAddMembersVisible(true);
+    searchUsers('');
+  };
+
+  const toggleCandidate = (id: string) => {
+    setSelectedMemberIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  };
+
+  const submitAddMembers = async () => {
+    if (!conversationId || selectedMemberIds.length === 0) return;
+    setAddingMembers(true);
+    try {
+      const updated = await authApi.addGroupMembers(conversationId, selectedMemberIds);
+      setConversation(updated);
+      setAddMembersVisible(false);
+      setSelectedMemberIds([]);
+      setUserQuery('');
+      setUserResults([]);
+      setStatusModal({
+        visible: true,
+        type: 'success',
+        title: 'Members added',
+        message: 'New farmers were added to this group.',
+      });
+    } catch (error: any) {
+      setStatusModal({
+        visible: true,
+        type: 'error',
+        title: 'Could not add members',
+        message: error?.message || 'Only the group creator can add members.',
+      });
+    } finally {
+      setAddingMembers(false);
     }
   };
 
@@ -287,12 +360,17 @@ export default function ContactProfile() {
         >
           <View style={styles.hero}>
             <TouchableOpacity
-              disabled={!canManageGroup}
+              disabled={!canManageGroup || uploadingPhoto}
               onPress={pickGroupImage}
               activeOpacity={canManageGroup ? 0.85 : 1}
             >
               <Image source={avatarSource} style={styles.avatar} />
-              {canManageGroup ? (
+              {uploadingPhoto ? (
+                <View style={styles.avatarOverlay}>
+                  <ActivityIndicator color="#fff" />
+                  <Text style={styles.avatarOverlayText}>Uploading…</Text>
+                </View>
+              ) : canManageGroup ? (
                 <View style={styles.cameraBadge}>
                   <Ionicons name="camera" size={14} color="#fff" />
                 </View>
@@ -370,7 +448,15 @@ export default function ContactProfile() {
 
           {isGroup ? (
             <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Members</Text>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Members</Text>
+                {canManageGroup ? (
+                  <TouchableOpacity onPress={openAddMembers} hitSlop={8} style={styles.addMembersBtn}>
+                    <Ionicons name="person-add-outline" size={16} color={colors.brand} />
+                    <Text style={styles.addMembersText}>Add</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
               {(conversation?.members || []).map((m) => (
                 <View key={m.id} style={styles.memberRow}>
                   <Image
@@ -411,6 +497,85 @@ export default function ContactProfile() {
         </ScrollView>
       )}
 
+      <Modal visible={addMembersVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add members</Text>
+              <TouchableOpacity
+                onPress={() => setAddMembersVisible(false)}
+                hitSlop={8}
+                disabled={addingMembers}
+              >
+                <Ionicons name="close" size={22} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search farmers..."
+              placeholderTextColor={colors.textMuted}
+              value={userQuery}
+              onChangeText={searchUsers}
+              autoCapitalize="none"
+            />
+            {searchingUsers ? (
+              <ActivityIndicator color={colors.brand} style={{ marginVertical: 12 }} />
+            ) : null}
+            <ScrollView style={{ maxHeight: 280 }}>
+              {userResults.length === 0 && !searchingUsers ? (
+                <Text style={styles.emptySearch}>No farmers found.</Text>
+              ) : (
+                userResults.map((u) => {
+                  const selected = selectedMemberIds.includes(u.id);
+                  return (
+                    <TouchableOpacity
+                      key={u.id}
+                      style={styles.userRow}
+                      onPress={() => toggleCandidate(u.id)}
+                    >
+                      <Image
+                        source={
+                          u.profileImage
+                            ? { uri: u.profileImage }
+                            : require('../assets/profile-pic.png')
+                        }
+                        style={styles.memberAvatar}
+                      />
+                      <Text style={[styles.memberName, { flex: 1 }]} numberOfLines={1}>
+                        {userDisplayName(u)}
+                      </Text>
+                      <Ionicons
+                        name={selected ? 'checkbox' : 'square-outline'}
+                        size={22}
+                        color={colors.brand}
+                      />
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
+            <TouchableOpacity
+              style={[
+                styles.primaryAction,
+                { marginBottom: 0, marginTop: 12 },
+                (addingMembers || selectedMemberIds.length === 0) && { opacity: 0.6 },
+              ]}
+              onPress={submitAddMembers}
+              disabled={addingMembers || selectedMemberIds.length === 0}
+            >
+              {addingMembers ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.primaryActionText}>
+                  Add {selectedMemberIds.length || ''} member
+                  {selectedMemberIds.length === 1 ? '' : 's'}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <StatusModal
         visible={statusModal.visible}
         type={statusModal.type}
@@ -448,6 +613,19 @@ const styles = StyleSheet.create({
     height: 112,
     borderRadius: 56,
     backgroundColor: colors.border,
+  },
+  avatarOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 56,
+    backgroundColor: 'rgba(11, 77, 38, 0.62)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  avatarOverlayText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 12,
   },
   cameraBadge: {
     position: 'absolute',
@@ -537,11 +715,72 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.text,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
   sectionTitle: {
     fontSize: 15,
     fontWeight: '800',
     color: colors.text,
-    marginBottom: 10,
+  },
+  addMembersBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+    backgroundColor: colors.brandSoft,
+  },
+  addMembersText: {
+    color: colors.brand,
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    padding: space.lg,
+    paddingBottom: space.xxl,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: space.md,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '800', color: colors.text },
+  searchInput: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: colors.text,
+    marginBottom: space.sm,
+  },
+  emptySearch: {
+    color: colors.textMuted,
+    fontWeight: '600',
+    textAlign: 'center',
+    paddingVertical: 20,
+  },
+  userRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
   },
   memberRow: {
     flexDirection: 'row',

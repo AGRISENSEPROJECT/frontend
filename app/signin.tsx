@@ -1,6 +1,6 @@
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Image } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Image, BackHandler } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Ionicons, AntDesign } from '@expo/vector-icons';
 
@@ -108,12 +108,16 @@ export default function SignIn() {
         }
     };
 
-    const handleBackPress = () => {
-        if (router.canGoBack()) {
-            router.back();
-        } else {
+    useEffect(() => {
+        const sub = BackHandler.addEventListener('hardwareBackPress', () => {
             router.replace('/');
-        }
+            return true;
+        });
+        return () => sub.remove();
+    }, [router]);
+
+    const handleBackPress = () => {
+        router.replace('/');
     };
 
     return (
