@@ -15,8 +15,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authApi } from '@/services/api';
 import { disconnectCommunitySocket } from '@/services/communitySocket';
 import StatusModal from '@/components/ui/StatusModal';
-import { userDisplayName } from '@/utils/userDisplay';
 import { clearSession } from '@/utils/session';
+import { useSidebar } from '@/context/SidebarContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SIDEBAR_WIDTH = Math.min(Math.round(SCREEN_WIDTH * 0.82), 300);
@@ -39,8 +39,9 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
-  const [displayName, setDisplayName] = useState('');
-  const [profileImage, setProfileImage] = useState<string | null>(null);
+  const { profile, refreshProfile, applyUser } = useSidebar();
+  const displayName = profile.displayName;
+  const profileImage = profile.profileImage;
   const [statusModal, setStatusModal] = useState({
     visible: false,
     type: 'error' as 'error' | 'success' | 'info',
@@ -50,27 +51,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   useEffect(() => {
     if (!isOpen) return;
-    (async () => {
-      try {
-        const userJson = await AsyncStorage.getItem('user');
-        if (userJson) {
-          const userData = JSON.parse(userJson);
-          setDisplayName(userDisplayName(userData));
-          setProfileImage(userData.profileImage || null);
-          return;
-        }
-        const token = await AsyncStorage.getItem('token');
-        if (token) {
-          const data = await authApi.getProfile(token);
-          setDisplayName(userDisplayName(data.user));
-          setProfileImage(data.user.profileImage || null);
-          await AsyncStorage.setItem('user', JSON.stringify(data.user));
-        }
-      } catch (error) {
-        console.error('Failed to fetch user data', error);
-      }
-    })();
-  }, [isOpen]);
+    refreshProfile();
+  }, [isOpen, refreshProfile]);
 
   const isActive = (item: (typeof menuItems)[number]) =>
     item.match.some((m) => pathname?.includes(m));
@@ -87,6 +69,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         }
       }
       await clearSession();
+      await applyUser(null);
       disconnectCommunitySocket();
       onClose();
       // Drop authenticated screens so hardware/back can't reopen the dashboard.

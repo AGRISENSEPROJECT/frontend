@@ -8,12 +8,14 @@ import { authApi } from '@/services/api';
 import StatusModal from '@/components/ui/StatusModal';
 import { isFarmerRole } from '@/utils/userDisplay';
 import { getPostAuthRoute, persistAuthSession } from '@/utils/session';
+import { useSidebar } from '@/context/SidebarContext';
 
 const PHONE_RE = /^\+?[1-9]\d{1,14}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function SignIn() {
     const router = useRouter();
+    const { applyUser } = useSidebar();
     const [loading, setLoading] = useState(false);
     const [statusModal, setStatusModal] = useState({
         visible: false,
@@ -93,6 +95,7 @@ export default function SignIn() {
                     refreshToken: data.refresh_token,
                     user: data.user,
                 });
+                await applyUser(data.user);
 
                 router.replace(getPostAuthRoute(data.user) as any);
             }
