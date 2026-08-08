@@ -49,6 +49,7 @@ export default function ContactProfile() {
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [addingMembers, setAddingMembers] = useState(false);
+  const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [addMembersVisible, setAddMembersVisible] = useState(false);
   const [userQuery, setUserQuery] = useState('');
   const [userResults, setUserResults] = useState<Author[]>([]);
@@ -241,6 +242,48 @@ export default function ContactProfile() {
     } finally {
       setAddingMembers(false);
     }
+  };
+
+  const removeMember = async (member: Author) => {
+    if (!conversationId || !canManageGroup || member.id === meId) return;
+    setRemovingMemberId(member.id);
+    try {
+      const updated = await authApi.removeGroupMembers(conversationId, [member.id]);
+      setConversation(updated);
+      setStatusModal({
+        visible: true,
+        type: 'success',
+        title: 'Member removed',
+        message: `${userDisplayName(member)} was removed from the group.`,
+      });
+    } catch (error: any) {
+      setStatusModal({
+        visible: true,
+        type: 'error',
+        title: 'Could not remove member',
+        message: error?.message || 'Only the group creator can remove members.',
+      });
+    } finally {
+      setRemovingMemberId(null);
+    }
+  };
+
+  const confirmRemoveMember = (member: Author) => {
+    if (!canManageGroup || member.id === meId) return;
+    const label = userDisplayName(member);
+    if (Platform.OS === 'web') {
+      if (
+        typeof window !== 'undefined' &&
+        window.confirm(`Remove ${label} from this group?`)
+      ) {
+        removeMember(member);
+      }
+      return;
+    }
+    Alert.alert(`Remove ${label}?`, 'They will no longer see this group chat.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: () => removeMember(member) },
+    ]);
   };
 
   const leave = async () => {
@@ -476,6 +519,21 @@ export default function ContactProfile() {
                       <Text style={styles.memberMeta}>Group creator</Text>
                     ) : null}
                   </View>
+                  {canManageGroup && m.id !== meId ? (
+                    <TouchableOpacity
+                      onPress={() => confirmRemoveMember(m)}
+                      disabled={removingMemberId === m.id}
+                      hitSlop={8}
+                      style={styles.removeMemberBtn}
+                      accessibilityLabel={`Remove ${userDisplayName(m)}`}
+                    >
+                      {removingMemberId === m.id ? (
+                        <ActivityIndicator size="small" color={colors.danger} />
+                      ) : (
+                        <Ionicons name="close-circle-outline" size={22} color={colors.danger} />
+                      )}
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               ))}
             </View>
@@ -797,6 +855,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.brandMid,
     marginTop: 2,
+  },
+  removeMemberBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   dangerBtn: {
     flexDirection: 'row',

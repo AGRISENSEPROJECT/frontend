@@ -24,7 +24,7 @@ import { PASSWORD_HINT, validateStrongPassword } from '@/utils/password';
 
 export default function Settings() {
     const router = useRouter();
-    const { toggleSidebar } = useSidebar();
+    const { toggleSidebar, applyUser } = useSidebar();
     const [loading, setLoading] = useState(false);
     const [initialLoading, setInitialLoading] = useState(true);
     const [uploadingImage, setUploadingImage] = useState(false);
@@ -78,7 +78,7 @@ export default function Settings() {
             const response = await authApi.getProfile(token);
             const user = response?.user || response;
             applyUserToForm(user);
-            await AsyncStorage.setItem('user', JSON.stringify(user));
+            await applyUser(user);
         } catch (error: any) {
             console.error('Error loading profile:', error);
         } finally {
@@ -102,6 +102,25 @@ export default function Settings() {
             const token = await AsyncStorage.getItem('token');
             if (!token) return;
 
+            const liveName = userDisplayName(
+                {
+                    ...userData,
+                    firstName: firstName.trim(),
+                    lastName: lastName.trim(),
+                },
+                { preferNames: true },
+            );
+            const optimistic = {
+                ...userData,
+                firstName: firstName.trim(),
+                lastName: lastName.trim(),
+                phoneNumber: phoneNumber.trim(),
+                displayName: liveName,
+                username: liveName,
+            };
+            applyUserToForm(optimistic);
+            await applyUser(optimistic);
+
             const result = await authApi.updateProfile(
                 {
                     firstName: firstName.trim(),
@@ -111,23 +130,16 @@ export default function Settings() {
                 token,
             );
             if (result?.user) {
-                // Update response is a subset — merge into cached profile
                 const merged = {
-                    ...userData,
+                    ...optimistic,
                     ...result.user,
-                    displayName: userDisplayName({
-                        ...userData,
-                        ...result.user,
-                    }),
-                    username: userDisplayName({
-                        ...userData,
-                        ...result.user,
-                    }),
+                    firstName: firstName.trim(),
+                    lastName: lastName.trim(),
+                    displayName: liveName,
+                    username: liveName,
                 };
                 applyUserToForm(merged);
-                await AsyncStorage.setItem('user', JSON.stringify(merged));
-            } else {
-                await loadProfile();
+                await applyUser(merged);
             }
             showStatus('success', 'Success', 'Profile updated successfully');
         } catch (error: any) {
