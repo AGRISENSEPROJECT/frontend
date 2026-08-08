@@ -1,15 +1,33 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Image, ActivityIndicator, Alert, StyleSheet } from 'react-native';
+import {
+    View,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    ScrollView,
+    Image,
+    ActivityIndicator,
+    Alert,
+    StyleSheet,
+    Platform,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { authApi } from '@/services/api';
 import StatusModal from '@/components/ui/StatusModal';
+import { useSidebar } from '@/context/SidebarContext';
+import { SettingsSkeleton } from '@/components/ui/Skeleton';
+import { userDisplayName } from '@/utils/userDisplay';
+import { PASSWORD_HINT, validateStrongPassword } from '@/utils/password';
 
 export default function Settings() {
     const router = useRouter();
+    const { toggleSidebar, applyUser } = useSidebar();
     const [loading, setLoading] = useState(false);
+    const [initialLoading, setInitialLoading] = useState(true);
+    const [uploadingImage, setUploadingImage] = useState(false);
     const [userData, setUserData] = useState<any>(null);
     const [statusModal, setStatusModal] = useState({
         visible: false,
@@ -18,15 +36,35 @@ export default function Settings() {
         message: '',
     });
 
-    // Form States
-    const [username, setUsername] = useState('');
+    const [firstName, setFirstName] = useState('');
+    const [lastName, setLastName] = useState('');
+    const [email, setEmail] = useState('');
     const [phoneNumber, setPhoneNumber] = useState('');
     const [currentPassword, setCurrentPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
 
+    const applyUserToForm = (user: any) => {
+        if (!user) return;
+        setUserData(user);
+        setFirstName(user.firstName || '');
+        setLastName(user.lastName || '');
+        setEmail(user.email || '');
+        const phone = user.phoneNumber ?? user.phone ?? user.phone_number ?? '';
+        setPhoneNumber(phone == null ? '' : String(phone));
+    };
+
     useEffect(() => {
-        loadProfile();
+        (async () => {
+            // Prefill instantly from cache so existing phone shows while API loads
+            try {
+                const cached = await AsyncStorage.getItem('user');
+                if (cached) applyUserToForm(JSON.parse(cached));
+            } catch {
+                // ignore
+            }
+            loadProfile();
+        })();
     }, []);
 
     const loadProfile = async () => {
@@ -38,22 +76,24 @@ export default function Settings() {
                 return;
             }
             const response = await authApi.getProfile(token);
-            const user = response.user;
-            setUserData(user);
-            setUsername(user.username || '');
-            setPhoneNumber(user.phoneNumber || '');
-            // Update stored user data
-            await AsyncStorage.setItem('user', JSON.stringify(user));
+            const user = response?.user || response;
+            applyUserToForm(user);
+            await applyUser(user);
         } catch (error: any) {
             console.error('Error loading profile:', error);
         } finally {
             setLoading(false);
+            setInitialLoading(false);
         }
     };
 
     const handleUpdateProfile = async () => {
-        if (!username) {
-            showStatus('info', 'Required', 'Username is required');
+        if (!firstName.trim()) {
+            showStatus('info', 'Required', 'First name is required');
+            return;
+        }
+        if (phoneNumber.trim() && !/^\+?[1-9]\d{1,14}$/.test(phoneNumber.trim())) {
+            showStatus('info', 'Invalid phone', 'Use international format, e.g. +250788123456');
             return;
         }
 
@@ -62,9 +102,46 @@ export default function Settings() {
             const token = await AsyncStorage.getItem('token');
             if (!token) return;
 
-            await authApi.updateProfile({ username, phoneNumber }, token);
+            const liveName = userDisplayName(
+                {
+                    ...userData,
+                    firstName: firstName.trim(),
+                    lastName: lastName.trim(),
+                },
+                { preferNames: true },
+            );
+            const optimistic = {
+                ...userData,
+                firstName: firstName.trim(),
+                lastName: lastName.trim(),
+                phoneNumber: phoneNumber.trim(),
+                displayName: liveName,
+                username: liveName,
+            };
+            applyUserToForm(optimistic);
+            await applyUser(optimistic);
+
+            const result = await authApi.updateProfile(
+                {
+                    firstName: firstName.trim(),
+                    lastName: lastName.trim(),
+                    phoneNumber: phoneNumber.trim(),
+                },
+                token,
+            );
+            if (result?.user) {
+                const merged = {
+                    ...optimistic,
+                    ...result.user,
+                    firstName: firstName.trim(),
+                    lastName: lastName.trim(),
+                    displayName: liveName,
+                    username: liveName,
+                };
+                applyUserToForm(merged);
+                await applyUser(merged);
+            }
             showStatus('success', 'Success', 'Profile updated successfully');
-            loadProfile();
         } catch (error: any) {
             showStatus('error', 'Update Failed', error.message);
         } finally {
@@ -80,6 +157,12 @@ export default function Settings() {
 
         if (newPassword !== confirmPassword) {
             showStatus('error', 'Error', 'Passwords do not match');
+            return;
+        }
+
+        const passwordError = validateStrongPassword(newPassword);
+        if (passwordError) {
+            showStatus('error', 'Weak password', passwordError || PASSWORD_HINT);
             return;
         }
 
@@ -101,66 +184,81 @@ export default function Settings() {
     };
 
     const handlePickImage = async () => {
-        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') {
-            showStatus('error', 'Permission Denied', 'Sorry, we need camera roll permissions to make this work!');
-            return;
-        }
+        try {
+            if (Platform.OS !== 'web') {
+                const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                if (status !== 'granted') {
+                    showStatus(
+                        'error',
+                        'Permission Denied',
+                        'We need photo library access to update your profile image.',
+                    );
+                    return;
+                }
+            }
 
-        let result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: true,
-            aspect: [1, 1],
-            quality: 0.7,
-        });
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ['images'],
+                allowsEditing: Platform.OS !== 'web',
+                aspect: [1, 1],
+                quality: 0.7,
+            });
 
-        if (!result.canceled && result.assets && result.assets[0].uri) {
-            uploadImage(result.assets[0].uri);
+            if (!result.canceled && result.assets?.[0]?.uri) {
+                await uploadImage(result.assets[0].uri);
+            }
+        } catch (error: any) {
+            showStatus(
+                'error',
+                'Picker Failed',
+                error?.message || 'Could not open the image picker. Try another browser or device.',
+            );
         }
     };
 
     const uploadImage = async (uri: string) => {
-        setLoading(true);
+        setUploadingImage(true);
         try {
             const token = await AsyncStorage.getItem('token');
             if (!token) return;
 
             await authApi.uploadProfileImage(uri, token);
             showStatus('success', 'Success', 'Profile image updated');
-            loadProfile();
+            await loadProfile();
         } catch (error: any) {
-            showStatus('error', 'Upload Failed', error.message);
+            showStatus('error', 'Upload Failed', error.message || 'Could not upload image');
         } finally {
-            setLoading(false);
+            setUploadingImage(false);
         }
     };
 
-    const handleDeleteImage = async () => {
-        Alert.alert(
-            "Delete Image",
-            "Are you sure you want to remove your profile image?",
-            [
-                { text: "Cancel", style: "cancel" },
-                { 
-                    text: "Delete", 
-                    style: "destructive",
-                    onPress: async () => {
-                        setLoading(true);
-                        try {
-                            const token = await AsyncStorage.getItem('token');
-                            if (!token) return;
-                            await authApi.deleteProfileImage(token);
-                            showStatus('success', 'Success', 'Profile image removed');
-                            loadProfile();
-                        } catch (error: any) {
-                            showStatus('error', 'Delete Failed', error.message);
-                        } finally {
-                            setLoading(false);
-                        }
-                    }
-                }
-            ]
-        );
+    const confirmDeleteImage = () => {
+        const runDelete = async () => {
+            setUploadingImage(true);
+            try {
+                const token = await AsyncStorage.getItem('token');
+                if (!token) return;
+                await authApi.deleteProfileImage(token);
+                showStatus('success', 'Success', 'Profile image removed');
+                await loadProfile();
+            } catch (error: any) {
+                showStatus('error', 'Delete Failed', error.message);
+            } finally {
+                setUploadingImage(false);
+            }
+        };
+
+        if (Platform.OS === 'web') {
+            if (typeof window !== 'undefined' && window.confirm('Remove your profile image?')) {
+                runDelete();
+            }
+            return;
+        }
+
+        Alert.alert('Delete Image', 'Are you sure you want to remove your profile image?', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Delete', style: 'destructive', onPress: runDelete },
+        ]);
     };
 
     const showStatus = (type: 'error' | 'success' | 'info', title: string, message: string) => {
@@ -170,15 +268,21 @@ export default function Settings() {
     return (
         <View style={styles.container}>
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()}>
-                    <Ionicons name="arrow-back" size={24} color="black" />
+                <TouchableOpacity
+                    onPress={toggleSidebar}
+                    hitSlop={10}
+                    accessibilityLabel="Open menu"
+                >
+                    <Ionicons name="menu" size={24} color="black" />
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Settings</Text>
                 <View style={{ width: 24 }} />
             </View>
 
+            {initialLoading && !userData ? (
+                <SettingsSkeleton />
+            ) : (
             <ScrollView contentContainerStyle={styles.scrollContent}>
-                {/* Profile Image Section */}
                 <View style={styles.imageSection}>
                     <View style={styles.imageContainer}>
                         {userData?.profileImage ? (
@@ -188,49 +292,100 @@ export default function Settings() {
                                 <Ionicons name="person" size={50} color="#9CA3AF" />
                             </View>
                         )}
-                        <TouchableOpacity style={styles.editImageIcon} onPress={handlePickImage}>
-                            <Ionicons name="camera" size={20} color="white" />
+                        <TouchableOpacity
+                            style={styles.editImageIcon}
+                            onPress={handlePickImage}
+                            disabled={uploadingImage}
+                        >
+                            {uploadingImage ? (
+                                <ActivityIndicator size="small" color="#fff" />
+                            ) : (
+                                <Ionicons name="camera" size={20} color="white" />
+                            )}
                         </TouchableOpacity>
                     </View>
+                    <Text style={styles.uploadHint}>
+                        {Platform.OS === 'web'
+                            ? 'Click the camera icon to upload a photo'
+                            : 'Tap the camera icon to upload a photo'}
+                    </Text>
                     {userData?.profileImage && (
-                        <TouchableOpacity onPress={handleDeleteImage}>
+                        <TouchableOpacity onPress={confirmDeleteImage} disabled={uploadingImage}>
                             <Text style={styles.deleteImageText}>Remove Image</Text>
                         </TouchableOpacity>
                     )}
                 </View>
 
-                {/* Profile Info Section */}
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Profile Information</Text>
+
                     <View style={styles.inputGroup}>
-                        <Text style={styles.label}>Username</Text>
+                        <Text style={styles.label}>Email</Text>
+                        <TextInput
+                            style={[styles.input, styles.inputDisabled]}
+                            value={email}
+                            editable={false}
+                            selectTextOnFocus={false}
+                            placeholder="Email"
+                        />
+                        <Text style={styles.helperText}>Email can’t be changed here</Text>
+                    </View>
+
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.label}>First name</Text>
                         <TextInput
                             style={styles.input}
-                            value={username}
-                            onChangeText={setUsername}
-                            placeholder="Enter username"
+                            value={firstName}
+                            onChangeText={setFirstName}
+                            placeholder="Enter first name"
+                            autoCapitalize="words"
                         />
                     </View>
+
                     <View style={styles.inputGroup}>
-                        <Text style={styles.label}>Phone Number</Text>
+                        <Text style={styles.label}>
+                            Last name <Text style={styles.optional}>(optional)</Text>
+                        </Text>
+                        <TextInput
+                            style={styles.input}
+                            value={lastName}
+                            onChangeText={setLastName}
+                            placeholder="Enter last name"
+                            autoCapitalize="words"
+                        />
+                    </View>
+
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.label}>
+                            Phone Number <Text style={styles.optional}>(optional)</Text>
+                        </Text>
                         <TextInput
                             style={styles.input}
                             value={phoneNumber}
                             onChangeText={setPhoneNumber}
-                            placeholder="Enter phone number"
+                            placeholder={phoneNumber ? '' : 'e.g. +250788123456'}
                             keyboardType="phone-pad"
+                            autoComplete="tel"
+                            textContentType="telephoneNumber"
                         />
+                        {!!phoneNumber && (
+                            <Text style={styles.helperText}>Edit to update, or clear to remove</Text>
+                        )}
                     </View>
-                    <TouchableOpacity 
-                        style={[styles.button, loading && styles.buttonDisabled]} 
+
+                    <TouchableOpacity
+                        style={[styles.button, loading && styles.buttonDisabled]}
                         onPress={handleUpdateProfile}
                         disabled={loading}
                     >
-                        {loading ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Save Changes</Text>}
+                        {loading ? (
+                            <ActivityIndicator color="white" />
+                        ) : (
+                            <Text style={styles.buttonText}>Save Changes</Text>
+                        )}
                     </TouchableOpacity>
                 </View>
 
-                {/* Password Section */}
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Change Password</Text>
                     <View style={styles.inputGroup}>
@@ -263,17 +418,22 @@ export default function Settings() {
                             secureTextEntry
                         />
                     </View>
-                    <TouchableOpacity 
-                        style={[styles.button, styles.passwordButton, loading && styles.buttonDisabled]} 
+                    <TouchableOpacity
+                        style={[styles.button, styles.passwordButton, loading && styles.buttonDisabled]}
                         onPress={handleChangePassword}
                         disabled={loading}
                     >
-                        {loading ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Update Password</Text>}
+                        {loading ? (
+                            <ActivityIndicator color="white" />
+                        ) : (
+                            <Text style={styles.buttonText}>Update Password</Text>
+                        )}
                     </TouchableOpacity>
                 </View>
 
                 <View style={{ height: 40 }} />
             </ScrollView>
+            )}
 
             <StatusModal
                 visible={statusModal.visible}
@@ -349,6 +509,13 @@ const styles = StyleSheet.create({
         borderWidth: 2,
         borderColor: 'white',
     },
+    uploadHint: {
+        color: '#6B7280',
+        fontSize: 12,
+        fontWeight: '600',
+        marginBottom: 6,
+        textAlign: 'center',
+    },
     deleteImageText: {
         color: '#EF4444',
         fontSize: 14,
@@ -380,6 +547,16 @@ const styles = StyleSheet.create({
         marginBottom: 5,
         fontWeight: '500',
     },
+    optional: {
+        color: '#9CA3AF',
+        fontWeight: '500',
+    },
+    helperText: {
+        marginTop: 4,
+        fontSize: 12,
+        color: '#9CA3AF',
+        fontWeight: '500',
+    },
     input: {
         backgroundColor: '#F9FAFB',
         borderWidth: 1,
@@ -387,6 +564,11 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         padding: 12,
         fontSize: 16,
+        color: '#111827',
+    },
+    inputDisabled: {
+        backgroundColor: '#F3F4F6',
+        color: '#6B7280',
     },
     button: {
         backgroundColor: '#0B4D26',

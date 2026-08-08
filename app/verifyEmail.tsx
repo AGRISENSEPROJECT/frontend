@@ -3,8 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { authApi, userHasFarm } from '@/services/api';
+import { authApi } from '@/services/api';
 import StatusModal from '@/components/ui/StatusModal';
 import Animated, {
     withTiming,
@@ -49,33 +48,15 @@ export default function VerifyEmail() {
         try {
             await authApi.verifyEmail({
                 email: email,
-                otp: code
+                otp: code,
             });
 
-            // Update local user data if it exists
-            const userJson = await AsyncStorage.getItem('user');
-            if (userJson) {
-                const user = JSON.parse(userJson);
-                user.isEmailVerified = true;
-                await AsyncStorage.setItem('user', JSON.stringify(user));
-
-                setModalVisible(true);
-                setTimeout(() => {
-                    setModalVisible(false);
-                    // Check if user has a farm before redirecting
-                    if (userHasFarm(user)) {
-                        router.push('/(main)/dashboard');
-                    } else {
-                        router.push('/RegisterFarm');
-                    }
-                }, 3000);
-            } else {
-                setModalVisible(true);
-                setTimeout(() => {
-                    setModalVisible(false);
-                    router.push('/RegisterFarm');
-                }, 3000);
-            }
+            // Backend verify-otp does not issue tokens — farmer must sign in next.
+            setModalVisible(true);
+            setTimeout(() => {
+                setModalVisible(false);
+                router.replace('/signin');
+            }, 2500);
         } catch (err: any) {
             setError(err.message || 'Invalid verification code');
         } finally {
@@ -88,18 +69,24 @@ export default function VerifyEmail() {
     };
 
     const handleResendCode = async () => {
-        if (!userId) {
+        const safeEmail =
+            email && email !== 'undefined' && email.includes('@') ? email : '';
+
+        if (!safeEmail && !userId) {
             setStatusModal({
                 visible: true,
                 type: 'error',
                 title: 'Missing Information',
-                message: 'User ID missing. Please try signing up again.',
+                message: 'Email missing. Please try signing up again.',
             });
             return;
         }
 
         try {
-            await authApi.resendOTP(userId);
+            await authApi.resendOTP({
+                email: safeEmail || undefined,
+                userId: userId || undefined,
+            });
             setStatusModal({
                 visible: true,
                 type: 'success',
@@ -158,7 +145,7 @@ export default function VerifyEmail() {
                     </Text>
 
                     <Text className="text-gray-600 text-center mb-6">
-                        Your email has been successfully verified
+                        Your email has been successfully verified. Please sign in to continue.
                     </Text>
 
                     {/* Progress bar */}
@@ -270,7 +257,7 @@ export default function VerifyEmail() {
                 visible={modalVisible}
                 onClose={() => {
                     setModalVisible(false);
-                    router.push('/RegisterFarm');
+                    router.replace('/signin');
                 }}
             />
         </SafeAreaView>

@@ -1,19 +1,69 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, TextInput, Image, TouchableOpacity, ActivityIndicator, Modal, StyleSheet, RefreshControl } from 'react-native';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import {
+    View,
+    Text,
+    ScrollView,
+    TextInput,
+    Image,
+    TouchableOpacity,
+    ActivityIndicator,
+    Modal,
+    StyleSheet,
+    RefreshControl,
+    Dimensions,
+    NativeSyntheticEvent,
+    NativeScrollEvent,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSidebar } from '../../context/SidebarContext';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authApi, predictionsApi, userHasFarm } from '@/services/api';
 import PayloadRows, { formatValue, formatEntry, humanize, HIDDEN_KEYS } from '@/components/recommendations/PayloadRows';
+import NotificationBell from '@/components/NotificationBell';
+import OnboardingBanner from '@/components/OnboardingBanner';
+import { useNotifications } from '@/context/NotificationContext';
+import { hasSeenPredictionRun, markPredictionRunSeen, timeAgoShort } from '@/services/notifications';
+import { DashboardSkeleton } from '@/components/ui/Skeleton';
+import { userDisplayName } from '@/utils/userDisplay';
 
 const TABS = ['Overview', 'Soil status', 'Weather', 'Recommend', 'Irrigation', 'Pests'];
-
-const carouselItems = [
-    { image: require('../../assets/latest-update.png'), title: 'Get to know your soil' },
-    { image: require('../../assets/latest-update.png'), title: 'Smart crop suggestions' },
-    { image: require('../../assets/latest-update.png'), title: 'Weather-aware farming' },
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const CAROUSEL_CARD_WIDTH = SCREEN_WIDTH - 48;
+const CAROUSEL_GAP = 12;
+const LATEST_UPDATE_PLACEHOLDERS = [
+    require('../../assets/latest-update.png'),
+    require('../../assets/farm-illustration.png'),
+    require('../../assets/crop-image.png'),
+    require('../../assets/soil-detection-image.png'),
 ];
+
+function latestPostCover(post: { id: string; imageUrl?: string | null }) {
+    if (post.imageUrl) return { uri: post.imageUrl };
+    let hash = 0;
+    for (let i = 0; i < post.id.length; i++) hash = (hash + post.id.charCodeAt(i)) % 997;
+    return LATEST_UPDATE_PLACEHOLDERS[hash % LATEST_UPDATE_PLACEHOLDERS.length];
+}
+
+type CommunityPostPreview = {
+    id: string;
+    title?: string | null;
+    description: string;
+    imageUrl?: string | null;
+    createdAt: string;
+    author?: {
+        id?: string;
+        username?: string;
+        displayName?: string;
+        firstName?: string;
+        lastName?: string;
+        profileImage?: string | null;
+    } | null;
+    likeCount?: number;
+    commentCount?: number;
+    likes?: any[];
+    comments?: any[];
+};
 
 function AccordionCard({
     title,
@@ -61,26 +111,159 @@ export default function Dashboard() {
     const [expandedCard, setExpandedCard] = useState<string | null>(null);
     const [latestRun, setLatestRun] = useState<any>(null);
     const [loadingRun, setLoadingRun] = useState(false);
+    const [latestPosts, setLatestPosts] = useState<CommunityPostPreview[]>([]);
+    const [loadingPosts, setLoadingPosts] = useState(false);
     const { toggleSidebar } = useSidebar();
+    const { push: pushNotification } = useNotifications();
+    const carouselRef = useRef<ScrollView>(null);
 
     const toggleAccordion = (key: string) => {
         setExpandedCard((prev) => (prev === key ? null : key));
     };
 
+    const fetchLatestPosts = useCallback(async () => {
+        setLoadingPosts(true);
+        try {
+            const data = await authApi.getPosts({ page: 1, limit: 3 });
+            const items = Array.isArray(data) ? data : data?.items || [];
+            setLatestPosts(
+                items.slice(0, 3).map((post: any) => ({
+                    ...post,
+                    author: post.author || post.user || null,
+                })),
+            );
+        } catch (error) {
+            console.error('Error fetching latest community posts:', error);
+            setLatestPosts([]);
+        } finally {
+            setLoadingPosts(false);
+        }
+    }, []);
+
     const fetchLatestRun = useCallback(async (farmId: string) => {
         setLoadingRun(true);
         try {
-            const response = await predictionsApi.getRuns({ farmId, limit: 5 });
+            const response = await predictionsApi.getRuns({ farmId, limit: 10 });
             const runs = response.items || response.runs || [];
-            const successRun = runs.find((run: any) => run.status === 'success') || null;
+
+            // Prefer a successful run; otherwise any run that already has recommendations attached.
+            let successRun =
+                runs.find((run: any) => String(run?.status || '').toLowerCase() === 'success') ||
+                runs.find((run: any) => Array.isArray(run?.recommendations) && run.recommendations.length > 0) ||
+                null;
+
+            // Same data source as the Recommends page — hydrate if runs are missing/empty.
+            const hydrateFromRecommendations = async (predictionId?: string | null) => {
+                const recResponse = await predictionsApi.getRecommendations({ farmId, limit: 50 });
+                const items = recResponse.items || [];
+                if (!items.length) return null;
+
+                const targetId = predictionId || items[0].predictionId;
+                const related = items.filter((item: any) => item.predictionId === targetId);
+                const pool = related.length ? related : items;
+                const crop =
+                    pool.find((r: any) => r.type === 'crop' && r.isPrimary) ||
+                    pool.find((r: any) => r.type === 'crop') ||
+                    pool[0];
+                const payload = crop?.payload || {};
+
+                return {
+                    id: targetId || crop?.predictionId || crop?.id,
+                    status: 'success',
+                    farmId,
+                    recommendations: pool,
+                    predictionSummary: {
+                        bestCrop:
+                            payload.best_crop ||
+                            payload.bestCrop ||
+                            payload.crop ||
+                            crop?.title ||
+                            null,
+                        confidence:
+                            payload.confidence ??
+                            payload.suitability_score ??
+                            payload.suitabilityScore ??
+                            null,
+                        fertilizer:
+                            pool.find((r: any) => r.type === 'fertilizer')?.payload
+                                ?.recommended_fertilizer ||
+                            pool.find((r: any) => r.type === 'fertilizer')?.title ||
+                            null,
+                        soilTexture: payload.soil_texture || payload.soilTexture || null,
+                        timestamp: crop?.createdAt || items[0].createdAt,
+                    },
+                    createdAt: crop?.createdAt || items[0].createdAt,
+                };
+            };
+
+            if (!successRun) {
+                successRun = await hydrateFromRecommendations();
+            } else if (!Array.isArray(successRun.recommendations) || successRun.recommendations.length === 0) {
+                const hydrated = await hydrateFromRecommendations(successRun.id);
+                if (hydrated) {
+                    successRun = {
+                        ...successRun,
+                        recommendations: hydrated.recommendations,
+                        predictionSummary: successRun.predictionSummary || hydrated.predictionSummary,
+                    };
+                }
+            }
+
             setLatestRun(successRun);
+
+            if (successRun?.id) {
+                const seen = await hasSeenPredictionRun(successRun.id);
+                if (!seen) {
+                    await markPredictionRunSeen(successRun.id);
+                    const crop =
+                        successRun.predictionSummary?.bestCrop ||
+                        successRun.recommendations?.find((r: any) => r.type === 'crop')?.payload?.crop ||
+                        successRun.recommendations?.find((r: any) => r.type === 'crop')?.payload?.best_crop ||
+                        'your farm';
+                    await pushNotification({
+                        type: 'recommendation',
+                        title: 'New recommendation ready',
+                        body: `Fresh analysis for ${crop}. Tap to review crop, fertilizer, and irrigation advice.`,
+                        route: '/recommends',
+                        params: { predictionId: String(successRun.id) },
+                        meta: { dedupeKey: `run-${successRun.id}`, runId: String(successRun.id) },
+                    });
+                }
+            }
         } catch (error) {
             console.error('Error fetching latest run:', error);
+            // Last resort: recommendations-only path (keeps dashboard aligned with Recommends page)
+            try {
+                const recResponse = await predictionsApi.getRecommendations({ farmId, limit: 50 });
+                const items = recResponse.items || [];
+                if (items.length) {
+                    const crop = items.find((r: any) => r.type === 'crop') || items[0];
+                    const related = items.filter((r: any) => r.predictionId === crop.predictionId);
+                    setLatestRun({
+                        id: crop.predictionId,
+                        status: 'success',
+                        farmId,
+                        recommendations: related.length ? related : items,
+                        predictionSummary: {
+                            bestCrop:
+                                crop.payload?.best_crop ||
+                                crop.payload?.bestCrop ||
+                                crop.payload?.crop ||
+                                crop.title,
+                            confidence: crop.payload?.confidence ?? crop.payload?.suitability_score,
+                        },
+                        createdAt: crop.createdAt,
+                    });
+                    return;
+                }
+            } catch (fallbackError) {
+                console.error('Recommendation fallback failed:', fallbackError);
+            }
             setLatestRun(null);
         } finally {
             setLoadingRun(false);
         }
-    }, []);
+    }, [pushNotification]);
 
     const fetchFarmDetails = useCallback(async () => {
         try {
@@ -116,8 +299,14 @@ export default function Dashboard() {
 
                 const user = JSON.parse(userJson);
 
-                if (!user.isEmailVerified) {
-                    router.replace(`/verifyEmail?email=${encodeURIComponent(user.email)}&userId=${user.id}`);
+                // Only force verify when explicitly false (missing/undefined should not trap users)
+                if (user.isEmailVerified === false) {
+                    const emailParam = user.email
+                        ? encodeURIComponent(user.email)
+                        : '';
+                    router.replace(
+                        `/verifyEmail?email=${emailParam}&userId=${user.id || ''}`,
+                    );
                     return;
                 }
 
@@ -132,12 +321,15 @@ export default function Dashboard() {
                         hasFarm = farmList.length > 0;
                         if (hasFarm) {
                             user.farmsCount = farmList.length;
+                            user.hasFarm = true;
                             await AsyncStorage.setItem('user', JSON.stringify(user));
                         }
                     } catch (error) {
                         console.error('Error checking farms:', error);
                     }
                 }
+
+                // Incomplete farmer onboarding (identity / first farm) → RegisterFarm
                 if (!hasFarm && skipFarm !== 'true') {
                     router.replace('/RegisterFarm');
                     return;
@@ -145,6 +337,7 @@ export default function Dashboard() {
 
                 setUserData(user);
                 fetchFarmDetails();
+                fetchLatestPosts();
             } catch (error) {
                 console.error('Error loading user data:', error);
             } finally {
@@ -153,24 +346,53 @@ export default function Dashboard() {
         };
 
         loadUserData();
+    }, [fetchFarmDetails, fetchLatestPosts]);
 
+    useEffect(() => {
+        if (latestPosts.length <= 1) return;
         const interval = setInterval(() => {
-            setCurrentIndex((prevIndex) => (prevIndex + 1) % carouselItems.length);
-        }, 3000);
-
+            setCurrentIndex((prevIndex) => {
+                const next = (prevIndex + 1) % latestPosts.length;
+                carouselRef.current?.scrollTo({
+                    x: next * (CAROUSEL_CARD_WIDTH + CAROUSEL_GAP),
+                    animated: true,
+                });
+                return next;
+            });
+        }, 4200);
         return () => clearInterval(interval);
-    }, [fetchFarmDetails]);
+    }, [latestPosts.length]);
 
     const onRefresh = async () => {
         setRefreshing(true);
-        await fetchFarmDetails();
+        await Promise.all([fetchFarmDetails(), fetchLatestPosts()]);
         setRefreshing(false);
     };
+
+    const onCarouselScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+        const x = event.nativeEvent.contentOffset.x;
+        const index = Math.round(x / (CAROUSEL_CARD_WIDTH + CAROUSEL_GAP));
+        if (index !== currentIndex && index >= 0 && index < latestPosts.length) {
+            setCurrentIndex(index);
+        }
+    };
+
+    const openCommunityPost = (postId: string) => {
+        router.push({
+            pathname: '/(main)/community',
+            params: { postId },
+        });
+    };
+
+    const avatarSource = (uri?: string | null) =>
+        uri ? { uri } : require('../../assets/profile-pic.png');
 
     const recommendations: any[] = latestRun?.recommendations || [];
     const recsOfType = (type: string) => recommendations.filter(rec => rec.type === type);
     const summary = latestRun?.predictionSummary || {};
     const soilScan = latestRun?.soilScan || null;
+    const needsIdentity = !!(userData && !userData.nationalIdVerified && !userData.onboardingCompleted);
+    const needsFarm = !userHasFarm(userData) && !farmData;
 
     const EmptyRecommendations = () => (
         <View style={dashStyles.emptyCard}>
@@ -218,19 +440,63 @@ export default function Dashboard() {
                             expanded={expandedCard === 'overview' || expandedCard == null}
                             onPress={() => toggleAccordion('overview')}
                         >
-                            {summary.bestCrop && (
-                                <HighlightLine label="Best crop :" value={String(summary.bestCrop)} />
+                            {(summary.bestCrop ||
+                                cropRecs[0]?.payload?.best_crop ||
+                                cropRecs[0]?.payload?.bestCrop ||
+                                cropRecs[0]?.payload?.crop ||
+                                cropRecs[0]?.title) && (
+                                <HighlightLine
+                                    label="Best crop :"
+                                    value={String(
+                                        summary.bestCrop ||
+                                            cropRecs[0]?.payload?.best_crop ||
+                                            cropRecs[0]?.payload?.bestCrop ||
+                                            cropRecs[0]?.payload?.crop ||
+                                            cropRecs[0]?.title,
+                                    )}
+                                />
                             )}
-                            {summary.confidence != null && (
+                            {(summary.confidence != null ||
+                                cropRecs[0]?.payload?.confidence != null ||
+                                cropRecs[0]?.payload?.suitability_score != null) && (
                                 <Text style={dashStyles.bodyText}>
-                                    Confidence: {Math.round(Number(summary.confidence) * (Number(summary.confidence) <= 1 ? 100 : 1))}%
+                                    Confidence:{' '}
+                                    {Math.round(
+                                        Number(
+                                            summary.confidence ??
+                                                cropRecs[0]?.payload?.confidence ??
+                                                cropRecs[0]?.payload?.suitability_score,
+                                        ) *
+                                            (Number(
+                                                summary.confidence ??
+                                                    cropRecs[0]?.payload?.confidence ??
+                                                    cropRecs[0]?.payload?.suitability_score,
+                                            ) <= 1
+                                                ? 100
+                                                : 1),
+                                    )}
+                                    %
                                 </Text>
                             )}
                             {summary.soilTexture && (
                                 <Text style={dashStyles.bodyText}>Soil texture: {String(summary.soilTexture)}</Text>
                             )}
-                            {summary.fertilizer && (
-                                <HighlightLine label="Fertilizer :" value={String(summary.fertilizer)} />
+                            {(summary.fertilizer ||
+                                fertRecs[0]?.payload?.recommended_fertilizer ||
+                                fertRecs[0]?.title) && (
+                                <HighlightLine
+                                    label="Fertilizer :"
+                                    value={String(
+                                        summary.fertilizer ||
+                                            fertRecs[0]?.payload?.recommended_fertilizer ||
+                                            fertRecs[0]?.title,
+                                    )}
+                                />
+                            )}
+                            {!summary.bestCrop && cropRecs.length === 0 && (
+                                <Text style={dashStyles.bodyText}>
+                                    Analysis ready — open recommendations for full details.
+                                </Text>
                             )}
                             <TouchableOpacity onPress={() => router.push('/recommends')} style={{ marginTop: 8 }}>
                                 <Text style={dashStyles.link}>See all recommendations →</Text>
@@ -383,11 +649,7 @@ export default function Dashboard() {
     );
 
     if (loading) {
-        return (
-            <View className="flex-1 items-center justify-center bg-[#FAF9F6]">
-                <ActivityIndicator size="large" color="#0B4D26" />
-            </View>
-        );
+        return <DashboardSkeleton />;
     }
 
     return (
@@ -397,97 +659,174 @@ export default function Dashboard() {
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0B4D26']} />}
             >
                 {/* Header */}
-                <View className="bg-green-800 py-6 px-4">
-                    <View className="flex-row justify-between items-center">
-                        <TouchableOpacity onPress={toggleSidebar}>
+                <View style={dashStyles.header}>
+                    <View style={dashStyles.headerTop}>
+                        <TouchableOpacity onPress={toggleSidebar} hitSlop={10} style={dashStyles.headerIconBtn}>
                             <Ionicons name="menu-outline" size={24} color="white" />
                         </TouchableOpacity>
-                        <View className="items-center">
+                        <View style={dashStyles.headerCenter}>
                             <TouchableOpacity
                                 onPress={() => setFarmModalVisible(true)}
-                                className="flex-row items-center"
+                                style={dashStyles.farmSwitcher}
                                 disabled={farms.length === 0}
+                                activeOpacity={0.85}
                             >
-                                <Ionicons name="location-outline" size={20} color="white" style={{ marginRight: 5 }} />
-                                <Text className="text-white font-bold text-base">
+                                <Ionicons name="location-outline" size={18} color="white" style={{ marginRight: 4 }} />
+                                <Text style={dashStyles.farmLocation} numberOfLines={1}>
                                     {farmData
                                         ? `${farmData.district || farmData.name}${farmData.province ? `, ${farmData.province}` : farmData.country ? `, ${farmData.country}` : ''}`
                                         : 'My Farm'}
                                 </Text>
-                                {farms.length > 0 && <Ionicons name="chevron-down" size={16} color="white" style={{ marginLeft: 5 }} />}
+                                {farms.length > 0 && <Ionicons name="chevron-down" size={14} color="white" style={{ marginLeft: 4 }} />}
                             </TouchableOpacity>
-                            <Text className="text-white text-xs font-semibold" style={{ opacity: 0.9 }}>
-                                {farmData?.name || `Welcome, ${userData?.username || ''}`}
+                            <Text style={dashStyles.farmWelcome} numberOfLines={1}>
+                                {farmData?.name || `Welcome, ${userDisplayName(userData)}`}
                             </Text>
                         </View>
-                        <View className="flex-row items-center">
+                        <View style={dashStyles.headerRight}>
                             <TouchableOpacity
                                 onPress={() => router.push('/RegisterFarm')}
-                                className="p-2 rounded-full mr-2"
-                                style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
+                                style={dashStyles.addFarmHeaderBtn}
                             >
                                 <Ionicons name="add" size={20} color="white" />
                             </TouchableOpacity>
-                            <Ionicons name="notifications-outline" size={24} color="white" />
+                            <NotificationBell color="#fff" size={24} />
                         </View>
                     </View>
 
-                    {/* Search Bar */}
-                    <View className="flex-row items-center mt-10 bg-white p-2 rounded-lg">
+                    <View style={dashStyles.searchBar}>
                         <Ionicons name="search-outline" size={20} color="#0B4D26" />
                         <TextInput
-                            placeholder="Search.."
-                            placeholderTextColor="#0B4D26"
-                            className="flex-1 ml-2"
+                            placeholder="Search farms, crops, tips..."
+                            placeholderTextColor="#6B7280"
+                            style={dashStyles.searchInput}
                         />
                     </View>
                 </View>
 
-                {/* Latest Update */}
-                <View className="p-4">
-                    <View className="flex-row justify-between items-center">
-                        <Text className="text-xl font-bold text-gray-900">#Latest Update</Text>
-                        <TouchableOpacity onPress={() => router.push('/recommends')}>
-                            <Text className="text-green-800 font-bold">See all</Text>
+                {(needsIdentity || needsFarm) && (
+                    <View style={dashStyles.section}>
+                        <OnboardingBanner needsIdentity={needsIdentity} needsFarm={needsFarm} />
+                    </View>
+                )}
+
+                {/* Latest community posts */}
+                <View style={dashStyles.section}>
+                    <View style={dashStyles.sectionHeader}>
+                        <View>
+                            <Text style={dashStyles.sectionTitle}>#Latest Update</Text>
+                            <Text style={dashStyles.sectionSubtitle}>From the farmer community</Text>
+                        </View>
+                        <TouchableOpacity onPress={() => router.push('/(main)/community')} hitSlop={8}>
+                            <Text style={dashStyles.seeAll}>See all</Text>
                         </TouchableOpacity>
                     </View>
-                    <ScrollView
-                        horizontal
-                        pagingEnabled
-                        showsHorizontalScrollIndicator={false}
-                        onScroll={(event) => {
-                            const slideSize = event.nativeEvent.layoutMeasurement.width;
-                            const index = Math.floor(event.nativeEvent.contentOffset.x / slideSize);
-                            setCurrentIndex(index);
-                        }}
-                        scrollEventThrottle={16}
-                        className="mt-2"
-                    >
-                        {carouselItems.map((item, index) => (
-                            <View key={index} className="w-64 h-36 mr-2">
-                                <Image source={item.image} className="w-full h-full rounded-lg" />
+
+                    {loadingPosts && latestPosts.length === 0 ? (
+                        <View style={dashStyles.carouselLoading}>
+                            <ActivityIndicator color="#0B4D26" />
+                        </View>
+                    ) : latestPosts.length === 0 ? (
+                        <TouchableOpacity
+                            style={dashStyles.emptyPostsCard}
+                            activeOpacity={0.9}
+                            onPress={() => router.push('/(main)/community')}
+                        >
+                            <Image source={LATEST_UPDATE_PLACEHOLDERS[0]} style={dashStyles.emptyPostsBg} />
+                            <View style={dashStyles.emptyPostsOverlay}>
+                                <Text style={dashStyles.emptyPostsTitle}>No community posts yet</Text>
+                                <Text style={dashStyles.emptyPostsBody}>Be the first to share an update or tip.</Text>
+                                <View style={dashStyles.emptyPostsCta}>
+                                    <Text style={dashStyles.emptyPostsCtaText}>Open Community</Text>
+                                </View>
                             </View>
-                        ))}
-                    </ScrollView>
-                    <View className="flex-row justify-center mt-2">
-                        {carouselItems.map((_, index) => (
-                            <View
-                                key={index}
-                                className={`w-2 h-2 rounded-full mx-1 ${currentIndex === index ? 'bg-blue-800' : 'bg-gray-400'}`}
-                            />
-                        ))}
-                    </View>
+                        </TouchableOpacity>
+                    ) : (
+                        <>
+                            <ScrollView
+                                ref={carouselRef}
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                decelerationRate="fast"
+                                snapToInterval={CAROUSEL_CARD_WIDTH + CAROUSEL_GAP}
+                                snapToAlignment="start"
+                                contentContainerStyle={{ paddingRight: 16 }}
+                                onScroll={onCarouselScroll}
+                                scrollEventThrottle={16}
+                            >
+                                {latestPosts.map((post) => (
+                                    <TouchableOpacity
+                                        key={post.id}
+                                        activeOpacity={0.92}
+                                        onPress={() => openCommunityPost(post.id)}
+                                        style={[dashStyles.postCard, { width: CAROUSEL_CARD_WIDTH, marginRight: CAROUSEL_GAP }]}
+                                    >
+                                        <Image
+                                            source={latestPostCover(post)}
+                                            style={dashStyles.postCardBg}
+                                        />
+                                        <View style={dashStyles.postCardOverlay} />
+                                        <View style={dashStyles.postCardContent}>
+                                            <View style={dashStyles.postCardMeta}>
+                                                <Image
+                                                    source={avatarSource(post.author?.profileImage)}
+                                                    style={dashStyles.postAvatar}
+                                                />
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={dashStyles.postAuthor} numberOfLines={1}>
+                                                        {userDisplayName(post.author) || 'Farmer'}
+                                                    </Text>
+                                                    <Text style={dashStyles.postTime}>
+                                                        {post.createdAt ? timeAgoShort(post.createdAt) : ''}
+                                                    </Text>
+                                                </View>
+                                                <View style={dashStyles.postBadge}>
+                                                    <Ionicons name="people" size={12} color="#0B4D26" />
+                                                    <Text style={dashStyles.postBadgeText}>Community</Text>
+                                                </View>
+                                            </View>
+                                            <View style={dashStyles.postCardBottom}>
+                                                <Text style={dashStyles.postSnippet} numberOfLines={2}>
+                                                    {post.title?.trim() ||
+                                                        post.description?.trim() ||
+                                                        'Community update'}
+                                                </Text>
+                                                <View style={dashStyles.postFooter}>
+                                                    <Text style={dashStyles.postStats}>
+                                                        {post.likeCount ?? post.likes?.length ?? 0} likes ·{' '}
+                                                        {post.commentCount ?? post.comments?.length ?? 0} comments
+                                                    </Text>
+                                                    <Text style={dashStyles.readMore}>Read more →</Text>
+                                                </View>
+                                            </View>
+                                        </View>
+                                    </TouchableOpacity>
+                                ))}
+                            </ScrollView>
+                            <View style={dashStyles.dots}>
+                                {latestPosts.map((post, index) => (
+                                    <View
+                                        key={post.id}
+                                        style={[
+                                            dashStyles.dot,
+                                            currentIndex === index && dashStyles.dotActive,
+                                        ]}
+                                    />
+                                ))}
+                            </View>
+                        </>
+                    )}
                 </View>
 
                 {/* Recommended For You */}
-                <View className="px-4">
-                    <View className="flex-row justify-between items-center">
-                        <Text className="text-xl font-bold text-gray-900">Recommended For You</Text>
-                        <TouchableOpacity onPress={() => router.push('/recommends')}>
-                            <Text className="text-green-800 font-bold">See all</Text>
+                <View style={[dashStyles.section, { paddingTop: 4 }]}>
+                    <View style={dashStyles.sectionHeader}>
+                        <Text style={dashStyles.sectionTitle}>Recommended For You</Text>
+                        <TouchableOpacity onPress={() => router.push('/recommends')} hitSlop={8}>
+                            <Text style={dashStyles.seeAll}>See all</Text>
                         </TouchableOpacity>
                     </View>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-2">
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
                         {TABS.map((tab) => {
                             const active = activeTab === tab;
                             return (
@@ -507,15 +846,15 @@ export default function Dashboard() {
                 </View>
 
                 {/* Farm section */}
-                <View className="px-4 pt-4 pb-2 flex-row justify-between items-center">
-                    <Text className="text-xl font-bold text-gray-900">{farmData?.name || 'My Farm'}</Text>
-                    <TouchableOpacity onPress={() => router.push('/recommends')}>
-                        <Text className="text-green-800 font-bold">See All</Text>
+                <View style={[dashStyles.section, dashStyles.farmSection]}>
+                    <Text style={dashStyles.sectionTitle}>{farmData?.name || 'My Farm'}</Text>
+                    <TouchableOpacity onPress={() => router.push('/recommends')} hitSlop={8}>
+                        <Text style={dashStyles.seeAll}>See All</Text>
                     </TouchableOpacity>
                 </View>
 
                 {/* Tab Content */}
-                <View className="px-4 pb-8">
+                <View style={{ paddingHorizontal: 16, paddingBottom: 28 }}>
                     {renderContent()}
                 </View>
             </ScrollView>
@@ -578,6 +917,274 @@ export default function Dashboard() {
 }
 
 const dashStyles = StyleSheet.create({
+    header: {
+        backgroundColor: '#0B4D26',
+        paddingTop: 18,
+        paddingBottom: 20,
+        paddingHorizontal: 16,
+        borderBottomLeftRadius: 0,
+        borderBottomRightRadius: 0,
+    },
+    headerTop: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    headerIconBtn: {
+        width: 40,
+        height: 40,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(255,255,255,0.12)',
+    },
+    headerCenter: {
+        flex: 1,
+        alignItems: 'center',
+        paddingHorizontal: 8,
+    },
+    farmSwitcher: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        maxWidth: '100%',
+    },
+    farmLocation: {
+        color: '#fff',
+        fontWeight: '800',
+        fontSize: 15,
+        maxWidth: 180,
+    },
+    farmWelcome: {
+        color: 'rgba(255,255,255,0.88)',
+        fontSize: 12,
+        fontWeight: '600',
+        marginTop: 2,
+    },
+    headerRight: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    addFarmHeaderBtn: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(255,255,255,0.2)',
+    },
+    searchBar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 18,
+        backgroundColor: '#fff',
+        borderRadius: 14,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 6,
+        elevation: 2,
+    },
+    searchInput: {
+        flex: 1,
+        marginLeft: 8,
+        color: '#111827',
+        fontSize: 14,
+        fontWeight: '500',
+        paddingVertical: 0,
+    },
+    section: {
+        paddingHorizontal: 16,
+        paddingTop: 18,
+    },
+    sectionHeader: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+        marginBottom: 12,
+    },
+    sectionTitle: {
+        fontSize: 20,
+        fontWeight: '800',
+        color: '#111827',
+    },
+    sectionSubtitle: {
+        marginTop: 2,
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#6B7280',
+    },
+    seeAll: {
+        color: '#0B4D26',
+        fontWeight: '800',
+        fontSize: 13,
+        marginTop: 4,
+    },
+    farmSection: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingTop: 16,
+        paddingBottom: 8,
+    },
+    carouselLoading: {
+        height: 168,
+        borderRadius: 18,
+        backgroundColor: '#F3F4F6',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    emptyPostsCard: {
+        height: 168,
+        borderRadius: 18,
+        overflow: 'hidden',
+    },
+    emptyPostsBg: {
+        ...StyleSheet.absoluteFillObject,
+        width: '100%',
+        height: '100%',
+    },
+    emptyPostsOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(11, 77, 38, 0.62)',
+        padding: 18,
+        justifyContent: 'flex-end',
+    },
+    emptyPostsTitle: {
+        color: '#fff',
+        fontWeight: '800',
+        fontSize: 17,
+    },
+    emptyPostsBody: {
+        color: 'rgba(255,255,255,0.9)',
+        fontSize: 13,
+        marginTop: 4,
+        marginBottom: 12,
+    },
+    emptyPostsCta: {
+        alignSelf: 'flex-start',
+        backgroundColor: '#fff',
+        borderRadius: 999,
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+    },
+    emptyPostsCtaText: {
+        color: '#0B4D26',
+        fontWeight: '800',
+        fontSize: 12,
+    },
+    postCard: {
+        height: 176,
+        borderRadius: 18,
+        overflow: 'hidden',
+        backgroundColor: '#0B4D26',
+    },
+    postCardBg: {
+        ...StyleSheet.absoluteFillObject,
+        width: '100%',
+        height: '100%',
+    },
+    postCardOverlay: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        height: '55%',
+        backgroundColor: 'rgba(8, 45, 24, 0.55)',
+    },
+    postCardContent: {
+        flex: 1,
+        padding: 14,
+        justifyContent: 'space-between',
+    },
+    postCardBottom: {
+        gap: 8,
+    },
+    postCardMeta: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    postAvatar: {
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        borderWidth: 1.5,
+        borderColor: 'rgba(255,255,255,0.7)',
+    },
+    postAuthor: {
+        color: '#fff',
+        fontWeight: '800',
+        fontSize: 13,
+        textShadowColor: 'rgba(0,0,0,0.35)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 3,
+    },
+    postTime: {
+        color: 'rgba(255,255,255,0.9)',
+        fontSize: 11,
+        fontWeight: '600',
+        marginTop: 1,
+        textShadowColor: 'rgba(0,0,0,0.35)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 3,
+    },
+    postBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: 'rgba(255,255,255,0.92)',
+        borderRadius: 999,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+    },
+    postBadgeText: {
+        color: '#0B4D26',
+        fontWeight: '800',
+        fontSize: 10,
+    },
+    postSnippet: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: '800',
+        lineHeight: 22,
+        textShadowColor: 'rgba(0,0,0,0.45)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 4,
+    },
+    postFooter: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    postStats: {
+        color: 'rgba(255,255,255,0.9)',
+        fontSize: 11,
+        fontWeight: '600',
+    },
+    readMore: {
+        color: '#BBF7D0',
+        fontWeight: '800',
+        fontSize: 12,
+    },
+    dots: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        marginTop: 12,
+        gap: 6,
+    },
+    dot: {
+        width: 7,
+        height: 7,
+        borderRadius: 4,
+        backgroundColor: '#D1D5DB',
+    },
+    dotActive: {
+        width: 18,
+        backgroundColor: '#0B4D26',
+    },
     accordion: {
         backgroundColor: '#fff',
         borderRadius: 14,
@@ -637,13 +1244,25 @@ const dashStyles = StyleSheet.create({
     chip: {
         paddingHorizontal: 14,
         paddingVertical: 10,
-        borderRadius: 10,
-        backgroundColor: '#E5E7EB',
+        borderRadius: 999,
+        backgroundColor: '#fff',
         marginRight: 8,
+        borderWidth: 1.5,
+        borderColor: '#D1D5DB',
+        minHeight: 40,
+        justifyContent: 'center',
     },
-    chipActive: { backgroundColor: '#34643F' },
-    chipText: { color: '#374151', fontWeight: '700', fontSize: 13 },
-    chipTextActive: { color: '#fff' },
+    chipActive: {
+        backgroundColor: '#0B4D26',
+        borderColor: '#0B4D26',
+        shadowColor: '#0B4D26',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    chipText: { color: '#4B5563', fontWeight: '700', fontSize: 13 },
+    chipTextActive: { color: '#fff', fontWeight: '800' },
 });
 
 const styles = StyleSheet.create({

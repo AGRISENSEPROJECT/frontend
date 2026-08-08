@@ -1,5 +1,59 @@
 import ENV from '@/config/env';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { router } from 'expo-router';
+
+/** NestJS often returns `message` as a string or string[]. */
+export function apiErrorMessage(result: any, fallback = 'Request failed'): string {
+    if (!result) return fallback;
+    if (Array.isArray(result.message)) return result.message.join(', ');
+    if (typeof result.message === 'string' && result.message.trim()) return result.message;
+    if (typeof result.error === 'string' && result.error.trim()) return result.error;
+    return fallback;
+}
+
+async function parseJsonSafe(response: Response): Promise<any> {
+    const text = await response.text();
+    if (!text) return {};
+    try {
+        return JSON.parse(text);
+    } catch {
+        return { message: text };
+    }
+}
+
+/** Single-flight refresh so parallel 401s don't race-revoke the session. */
+let refreshInFlight: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+    if (refreshInFlight) return refreshInFlight;
+
+    refreshInFlight = (async () => {
+        try {
+            const refreshToken = await AsyncStorage.getItem('refreshToken');
+            if (!refreshToken) return null;
+
+            const refreshResponse = await fetch(`${ENV.API_URL}/api/auth/refresh`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refreshToken }),
+            });
+            const refreshData = await parseJsonSafe(refreshResponse);
+            if (!refreshResponse.ok || !refreshData.access_token) {
+                await AsyncStorage.multiRemove(['token', 'refreshToken', 'user']);
+                return null;
+            }
+            await AsyncStorage.setItem('token', refreshData.access_token);
+            return refreshData.access_token as string;
+        } catch (error) {
+            console.error('Token refresh failed:', error);
+            return null;
+        } finally {
+            refreshInFlight = null;
+        }
+    })();
+
+    return refreshInFlight;
+}
 
 // Helper for authenticated requests with automatic token refresh
 const authenticatedFetch = async (endpoint: string, options: any = {}): Promise<any> => {
@@ -8,7 +62,7 @@ const authenticatedFetch = async (endpoint: string, options: any = {}): Promise<
     const makeRequest = async (tokenToUse: string) => {
         const headers: Record<string, string> = {
             ...options.headers,
-            'Authorization': `Bearer ${tokenToUse}`,
+            Authorization: `Bearer ${tokenToUse}`,
         };
         // Let fetch set the multipart boundary itself for FormData bodies
         if (!(options.body instanceof FormData)) {
@@ -22,47 +76,73 @@ const authenticatedFetch = async (endpoint: string, options: any = {}): Promise<
 
     let response = await makeRequest(token || '');
 
-    // If unauthorized (401), try to refresh token
+    // Access tokens expire in ~15m — refresh once, then retry.
     if (response.status === 401) {
-        const refreshToken = await AsyncStorage.getItem('refreshToken');
-        if (refreshToken) {
+        const newToken = await refreshAccessToken();
+        if (newToken) {
+            response = await makeRequest(newToken);
+        } else {
             try {
-                const refreshResponse = await fetch(`${ENV.API_URL}/api/auth/refresh`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ refreshToken }),
-                });
-
-                if (refreshResponse.ok) {
-                    const refreshData = await refreshResponse.json();
-                    const newToken = refreshData.access_token;
-
-                    // Save new token
-                    await AsyncStorage.setItem('token', newToken);
-
-                    // Retry original request with new token
-                    response = await makeRequest(newToken);
-                } else {
-                    // Refresh token expired or invalid - clear session
-                    await AsyncStorage.multiRemove(['token', 'refreshToken', 'user']);
-                }
-            } catch (error) {
-                console.error('Token refresh failed:', error);
+                router.replace('/signin');
+            } catch {
+                // Navigation may be unavailable during early boot
             }
         }
     }
 
-    const result = await response.json();
+    const result = await parseJsonSafe(response);
     if (!response.ok) {
-        throw new Error(result.message || 'Request failed');
+        throw new Error(apiErrorMessage(result));
     }
     return result;
 };
 
-// The backend reports farm ownership as `farmsCount`; older code expected `hasFarm`.
-// Accept any of the known shapes so login/dashboard guards work correctly.
+// The backend reports farm ownership as `farmsCount` / `activeFarmId`; older code expected `hasFarm`.
 export const userHasFarm = (user: any): boolean =>
-    !!(user?.hasFarm || user?.farm || (user?.farmsCount ?? 0) > 0);
+    !!(
+        user?.hasFarm ||
+        user?.farm ||
+        user?.activeFarmId ||
+        (user?.farmsCount ?? 0) > 0 ||
+        user?.onboardingCompleted
+    );
+
+export type AuthUser = {
+    id: string;
+    email: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    /** Computed display label from backend (legacy alias) */
+    username?: string | null;
+    displayName?: string | null;
+    phoneNumber?: string | null;
+    profileImage?: string | null;
+    role?: string;
+    status?: string;
+    isEmailVerified?: boolean;
+    onboardingStep?: number;
+    onboardingCompleted?: boolean;
+    activeFarmId?: string | null;
+    farmsCount?: number;
+    hasFarm?: boolean;
+    provider?: string;
+    nationalId?: string | null;
+    nationalIdVerified?: boolean;
+    identityVerificationStatus?: string | null;
+    assignedRegions?: string[] | null;
+    lastLoginAt?: string | null;
+};
+
+export type CommunityAuthor = {
+    id: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    email?: string | null;
+    profileImage?: string | null;
+    username?: string | null;
+    displayName?: string | null;
+    online?: boolean;
+};
 
 export const authApi = {
     endpoints: {
@@ -79,6 +159,9 @@ export const authApi = {
         refresh: '/api/auth/refresh',
         verifyEmail: '/api/auth/verify-otp',
         resendOTP: '/api/auth/resend-otp',
+        onboardingIdentity: '/api/auth/onboarding/identity',
+        onboardingFarm: '/api/auth/onboarding/farm',
+        onboardingStatus: '/api/auth/onboarding/status',
         registerFarm: '/api/farms',
         getFarms: '/api/farms',
         farmById: (id: string) => `/api/farms/${id}`,
@@ -86,20 +169,51 @@ export const authApi = {
         getPosts: '/api/community/posts',
         likePost: (id: string) => `/api/community/posts/${id}/like`,
         commentPost: (id: string) => `/api/community/posts/${id}/comment`,
+        deletePost: (id: string) => `/api/community/posts/${id}`,
+        updatePost: (id: string) => `/api/community/posts/${id}`,
+        updateComment: (id: string) => `/api/community/comments/${id}`,
+        deleteComment: (id: string) => `/api/community/comments/${id}`,
+        searchUsers: '/api/community/users',
+        conversations: '/api/community/conversations',
+        directConversation: '/api/community/conversations/direct',
+        groupConversation: '/api/community/conversations/group',
+        conversationById: (id: string) => `/api/community/conversations/${id}`,
+        conversationImage: (id: string) => `/api/community/conversations/${id}/image`,
+        conversationMessages: (id: string) => `/api/community/conversations/${id}/messages`,
+        conversationRead: (id: string) => `/api/community/conversations/${id}/read`,
+        conversationMembers: (id: string) => `/api/community/conversations/${id}/members`,
+        communityPresence: '/api/community/presence',
+        notifications: '/api/notifications',
+        notificationsUnreadCount: '/api/notifications/unread-count',
+        notificationsReadAll: '/api/notifications/read-all',
+        notificationsClear: '/api/notifications',
+        notificationRead: (id: string) => `/api/notifications/${id}/read`,
+        notificationById: (id: string) => `/api/notifications/${id}`,
+        communityBlocks: '/api/community/blocks',
+        communityUnblock: (userId: string) => `/api/community/blocks/${userId}`,
+        communityMessage: (id: string) => `/api/community/messages/${id}`,
     },
 
     signup: async (data: SignupData): Promise<SignupResponse> => {
         try {
+            const body: SignupData = {
+                email: data.email.trim(),
+                password: data.password,
+                firstName: data.firstName.trim(),
+            };
+            if (data.lastName?.trim()) body.lastName = data.lastName.trim();
+            if (data.phoneNumber?.trim()) body.phoneNumber = data.phoneNumber.trim();
+
             const response = await fetch(`${ENV.API_URL}${authApi.endpoints.register}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(data),
+                body: JSON.stringify(body),
             });
-            const result = await response.json();
+            const result = await parseJsonSafe(response);
             if (!response.ok) {
-                throw new Error(result.message || 'Signup failed');
+                throw new Error(apiErrorMessage(result, 'Signup failed'));
             }
             return result;
         } catch (error: any) {
@@ -109,16 +223,21 @@ export const authApi = {
 
     signin: async (data: SigninData): Promise<SigninResponse> => {
         try {
+            // Backend accepts email OR phoneNumber (farmers); never send both empty keys.
+            const body: SigninData = { password: data.password };
+            if (data.email?.trim()) body.email = data.email.trim();
+            if (data.phoneNumber?.trim()) body.phoneNumber = data.phoneNumber.trim();
+
             const response = await fetch(`${ENV.API_URL}${authApi.endpoints.login}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(data),
+                body: JSON.stringify(body),
             });
-            const result = await response.json();
+            const result = await parseJsonSafe(response);
             if (!response.ok) {
-                throw new Error(result.message || 'Login failed');
+                throw new Error(apiErrorMessage(result, 'Login failed'));
             }
             return result;
         } catch (error: any) {
@@ -132,25 +251,52 @@ export const authApi = {
         });
     },
 
-    updateProfile: async (data: { username?: string; phoneNumber?: string }, token: string): Promise<any> => {
+    updateProfile: async (
+        data: {
+            firstName?: string;
+            lastName?: string;
+            phoneNumber?: string | null;
+        },
+        _token?: string,
+    ): Promise<any> => {
         // Backend exposes PUT /api/auth/profile (PATCH returns 404)
+        const payload: {
+            firstName?: string;
+            lastName?: string;
+            phoneNumber?: string;
+        } = {};
+        if (data.firstName?.trim()) payload.firstName = data.firstName.trim();
+        if (data.lastName !== undefined) payload.lastName = String(data.lastName || '').trim();
+        if (data.phoneNumber !== undefined && data.phoneNumber !== null) {
+            payload.phoneNumber = String(data.phoneNumber).trim();
+        }
+
         return await authenticatedFetch(authApi.endpoints.updateProfile, {
             method: 'PUT',
-            body: JSON.stringify(data),
+            body: JSON.stringify(payload),
         });
     },
 
     uploadProfileImage: async (imageUri: string, token: string): Promise<any> => {
         const formData = new FormData();
-        const filename = imageUri.split('/').pop();
-        const match = /\.(\w+)$/.exec(filename || '');
-        const type = match ? `image/${match[1]}` : `image`;
+        const rawName = imageUri.split('?')[0].split('/').pop() || 'profile.jpg';
+        const filename = rawName.includes('.') ? rawName : `${rawName}.jpg`;
+        const match = /\.(\w+)$/.exec(filename);
+        const ext = (match?.[1] || 'jpeg').toLowerCase();
+        const type = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
 
-        formData.append('image', {
-            uri: imageUri,
-            name: filename,
-            type,
-        } as any);
+        // Web needs a real Blob/File; native uses the { uri, name, type } shape.
+        if (typeof document !== 'undefined') {
+            const response = await fetch(imageUri);
+            const blob = await response.blob();
+            formData.append('image', blob, filename);
+        } else {
+            formData.append('image', {
+                uri: imageUri,
+                name: filename,
+                type,
+            } as any);
+        }
 
         return await authenticatedFetch(authApi.endpoints.uploadProfileImage, {
             method: 'POST',
@@ -182,7 +328,7 @@ export const authApi = {
             });
             const result = await response.json();
             if (!response.ok) {
-                throw new Error(result.message || 'Failed to request reset code');
+                throw new Error(apiErrorMessage(result, 'Failed to request reset code'));
             }
             return result;
         } catch (error: any) {
@@ -201,7 +347,7 @@ export const authApi = {
             });
             const result = await response.json();
             if (!response.ok) {
-                throw new Error(result.message || 'Failed to reset password');
+                throw new Error(apiErrorMessage(result, 'Failed to reset password'));
             }
             return result;
         } catch (error: any) {
@@ -227,7 +373,7 @@ export const authApi = {
             });
             const result = await response.json();
             if (!response.ok) {
-                throw new Error(result.message || 'Token refresh failed');
+                throw new Error(apiErrorMessage(result, 'Token refresh failed'));
             }
             return result;
         } catch (error: any) {
@@ -236,11 +382,14 @@ export const authApi = {
     },
 
     registerFarm: async (data: any, token: string): Promise<any> => {
+        const soilType = String(data.soilType || '')
+            .trim()
+            .toLowerCase();
         const payload: Record<string, any> = {
             name: data.farmName,
             size: parseFloat(data.farmSize) || 0,
-            soilType: data.soilType.toLowerCase(),
-            country: data.country,
+            soilType,
+            country: data.country || 'Rwanda',
             province: data.province,
             district: data.district,
             sector: data.sector,
@@ -250,10 +399,68 @@ export const authApi = {
             ownerEmail: data.emailAddress,
         };
         if (data.phoneNumber) payload.ownerPhone = data.phoneNumber;
+        if (data.latitude != null) payload.latitude = Number(data.latitude);
+        if (data.longitude != null) payload.longitude = Number(data.longitude);
 
         return await authenticatedFetch(authApi.endpoints.registerFarm, {
             method: 'POST',
             body: JSON.stringify(payload),
+        });
+    },
+
+    /** Step 2 — Rwanda national ID (farmers only). */
+    submitOnboardingIdentity: async (data: {
+        nationalId: string;
+        documentType?: string;
+        idImageUrl?: string;
+    }): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.onboardingIdentity, {
+            method: 'POST',
+            body: JSON.stringify({
+                nationalId: String(data.nationalId).trim(),
+                documentType: data.documentType || 'NATIONAL_ID',
+                ...(data.idImageUrl ? { idImageUrl: data.idImageUrl } : {}),
+            }),
+        });
+    },
+
+    /**
+     * Step 3 — first farm during onboarding.
+     * Completes onboarding and sets status ACTIVE (unlike POST /api/farms).
+     */
+    completeOnboardingFarm: async (data: any): Promise<any> => {
+        const soilType = String(data.soilType || '')
+            .trim()
+            .toLowerCase();
+        const payload: Record<string, any> = {
+            name: data.farmName,
+            province: data.province,
+            district: data.district,
+            sector: data.sector,
+            cell: data.cell,
+            village: data.village,
+            size: parseFloat(data.farmSize) || 0,
+            soilType,
+        };
+        if (data.latitude != null) payload.latitude = Number(data.latitude);
+        if (data.longitude != null) payload.longitude = Number(data.longitude);
+
+        return await authenticatedFetch(authApi.endpoints.onboardingFarm, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+    },
+
+    getOnboardingStatus: async (): Promise<{
+        onboardingStep: number;
+        onboardingCompleted: boolean;
+        identityVerificationStatus?: string | null;
+        nationalIdVerified?: boolean;
+        role?: string;
+        status?: string;
+    }> => {
+        return await authenticatedFetch(authApi.endpoints.onboardingStatus, {
+            method: 'GET',
         });
     },
 
@@ -283,15 +490,46 @@ export const authApi = {
         });
     },
 
-    createPost: async (data: { description: string; imageUrl?: string }): Promise<any> => {
+    createPost: async (data: {
+        title: string;
+        description: string;
+        imageUri: string;
+    }): Promise<any> => {
+        const formData = new FormData();
+        formData.append('title', data.title);
+        formData.append('description', data.description);
+
+        const rawName = data.imageUri.split('?')[0].split('/').pop() || `post-${Date.now()}.jpg`;
+        const filename = rawName.includes('.') ? rawName : `${rawName}.jpg`;
+        const match = /\.(\w+)$/.exec(filename);
+        const ext = (match?.[1] || 'jpeg').toLowerCase();
+        const type = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
+
+        // Web needs a Blob/File; native uses { uri, name, type }.
+        if (typeof document !== 'undefined') {
+            const response = await fetch(data.imageUri);
+            const blob = await response.blob();
+            formData.append('image', blob, filename);
+        } else {
+            formData.append('image', {
+                uri: data.imageUri,
+                name: filename,
+                type: type === 'image/jpg' ? 'image/jpeg' : type,
+            } as any);
+        }
+
         return await authenticatedFetch(authApi.endpoints.createPost, {
             method: 'POST',
-            body: JSON.stringify(data),
+            body: formData,
         });
     },
 
-    getPosts: async (): Promise<any> => {
-        return await authenticatedFetch(authApi.endpoints.getPosts, {
+    getPosts: async (params: { page?: number; limit?: number } = {}): Promise<any> => {
+        const query = new URLSearchParams();
+        if (params.page) query.append('page', String(params.page));
+        if (params.limit) query.append('limit', String(params.limit));
+        const qs = query.toString();
+        return await authenticatedFetch(`${authApi.endpoints.getPosts}${qs ? `?${qs}` : ''}`, {
             method: 'GET',
         });
     },
@@ -309,6 +547,253 @@ export const authApi = {
         });
     },
 
+    deletePost: async (postId: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.deletePost(postId), {
+            method: 'DELETE',
+        });
+    },
+
+    updatePost: async (
+        postId: string,
+        data: { title?: string; description: string; imageUri?: string | null },
+    ): Promise<any> => {
+        const formData = new FormData();
+        if (data.title?.trim()) formData.append('title', data.title.trim());
+        formData.append('description', data.description);
+
+        if (data.imageUri) {
+            const rawName =
+                data.imageUri.split('?')[0].split('/').pop() || `post-${Date.now()}.jpg`;
+            const filename = rawName.includes('.') ? rawName : `${rawName}.jpg`;
+            const match = /\.(\w+)$/.exec(filename);
+            const ext = (match?.[1] || 'jpeg').toLowerCase();
+            const type = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
+
+            if (typeof document !== 'undefined') {
+                const response = await fetch(data.imageUri);
+                const blob = await response.blob();
+                formData.append('image', blob, filename);
+            } else {
+                formData.append('image', {
+                    uri: data.imageUri,
+                    name: filename,
+                    type: type === 'image/jpg' ? 'image/jpeg' : type,
+                } as any);
+            }
+        }
+
+        return await authenticatedFetch(authApi.endpoints.updatePost(postId), {
+            method: 'PATCH',
+            body: formData,
+        });
+    },
+
+    deleteComment: async (commentId: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.deleteComment(commentId), {
+            method: 'DELETE',
+        });
+    },
+
+    updateComment: async (commentId: string, content: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.updateComment(commentId), {
+            method: 'PATCH',
+            body: JSON.stringify({ content }),
+        });
+    },
+
+    searchCommunityUsers: async (q?: string): Promise<any[]> => {
+        const qs = q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : '';
+        return await authenticatedFetch(`${authApi.endpoints.searchUsers}${qs}`, {
+            method: 'GET',
+        });
+    },
+
+    listConversations: async (type?: 'direct' | 'group'): Promise<any[]> => {
+        const qs = type ? `?type=${type}` : '';
+        return await authenticatedFetch(`${authApi.endpoints.conversations}${qs}`, {
+            method: 'GET',
+        });
+    },
+
+    createDirectConversation: async (userId: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.directConversation, {
+            method: 'POST',
+            body: JSON.stringify({ userId }),
+        });
+    },
+
+    createGroupConversation: async (name: string, memberIds: string[]): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.groupConversation, {
+            method: 'POST',
+            body: JSON.stringify({ name, memberIds }),
+        });
+    },
+
+    renameGroupConversation: async (id: string, name: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.conversationById(id), {
+            method: 'PATCH',
+            body: JSON.stringify({ name }),
+        });
+    },
+
+    uploadGroupImage: async (id: string, imageUri: string): Promise<any> => {
+        const formData = new FormData();
+        const rawName = imageUri.split('?')[0].split('/').pop() || `group-${Date.now()}.jpg`;
+        const filename = rawName.includes('.') ? rawName : `${rawName}.jpg`;
+        const match = /\.(\w+)$/.exec(filename);
+        const ext = (match?.[1] || 'jpeg').toLowerCase();
+        const type = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
+
+        if (typeof document !== 'undefined') {
+            const response = await fetch(imageUri);
+            const blob = await response.blob();
+            formData.append('image', blob, filename);
+        } else {
+            formData.append('image', {
+                uri: imageUri,
+                name: filename,
+                type,
+            } as any);
+        }
+
+        return await authenticatedFetch(authApi.endpoints.conversationImage(id), {
+            method: 'POST',
+            body: formData,
+        });
+    },
+
+    getConversation: async (id: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.conversationById(id), {
+            method: 'GET',
+        });
+    },
+
+    getConversationMessages: async (
+        id: string,
+        params: { page?: number; limit?: number } = {},
+    ): Promise<any> => {
+        const query = new URLSearchParams();
+        if (params.page) query.append('page', String(params.page));
+        if (params.limit) query.append('limit', String(params.limit));
+        const qs = query.toString();
+        return await authenticatedFetch(
+            `${authApi.endpoints.conversationMessages(id)}${qs ? `?${qs}` : ''}`,
+            { method: 'GET' },
+        );
+    },
+
+    sendConversationMessage: async (id: string, content: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.conversationMessages(id), {
+            method: 'POST',
+            body: JSON.stringify({ content }),
+        });
+    },
+
+    markConversationRead: async (id: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.conversationRead(id), {
+            method: 'POST',
+        });
+    },
+
+    leaveConversation: async (id: string): Promise<any> => {
+        return await authenticatedFetch(`${authApi.endpoints.conversationById(id)}/leave`, {
+            method: 'POST',
+        });
+    },
+
+    addGroupMembers: async (id: string, memberIds: string[]): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.conversationMembers(id), {
+            method: 'POST',
+            body: JSON.stringify({ memberIds }),
+        });
+    },
+
+    removeGroupMembers: async (id: string, memberIds: string[]): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.conversationMembers(id), {
+            method: 'DELETE',
+            body: JSON.stringify({ memberIds }),
+        });
+    },
+
+    blockUser: async (userId: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.communityBlocks, {
+            method: 'POST',
+            body: JSON.stringify({ userId }),
+        });
+    },
+
+    unblockUser: async (userId: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.communityUnblock(userId), {
+            method: 'DELETE',
+        });
+    },
+
+    getCommunityPresence: async (): Promise<{ onlineUserIds: string[] }> => {
+        return await authenticatedFetch(authApi.endpoints.communityPresence, {
+            method: 'GET',
+        });
+    },
+
+    getNotifications: async (
+        params: { page?: number; limit?: number; unreadOnly?: boolean } = {},
+    ): Promise<any> => {
+        const query = new URLSearchParams();
+        if (params.page) query.append('page', String(params.page));
+        if (params.limit) query.append('limit', String(params.limit));
+        if (params.unreadOnly) query.append('unreadOnly', 'true');
+        const qs = query.toString();
+        return await authenticatedFetch(
+            `${authApi.endpoints.notifications}${qs ? `?${qs}` : ''}`,
+            { method: 'GET' },
+        );
+    },
+
+    getNotificationsUnreadCount: async (): Promise<{ unreadCount: number }> => {
+        return await authenticatedFetch(authApi.endpoints.notificationsUnreadCount, {
+            method: 'GET',
+        });
+    },
+
+    markNotificationRead: async (id: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.notificationRead(id), {
+            method: 'PATCH',
+        });
+    },
+
+    markAllNotificationsRead: async (): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.notificationsReadAll, {
+            method: 'PATCH',
+        });
+    },
+
+    clearAllNotifications: async (): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.notificationsClear, {
+            method: 'DELETE',
+        });
+    },
+
+    deleteNotification: async (id: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.notificationById(id), {
+            method: 'DELETE',
+        });
+    },
+
+    deleteConversationMessage: async (messageId: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.communityMessage(messageId), {
+            method: 'DELETE',
+        });
+    },
+
+    updateConversationMessage: async (
+        messageId: string,
+        content: string,
+    ): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.communityMessage(messageId), {
+            method: 'PATCH',
+            body: JSON.stringify({ content }),
+        });
+    },
+
     verifyEmail: async (data: { email: string; otp: string }): Promise<any> => {
         try {
             const response = await fetch(`${ENV.API_URL}${authApi.endpoints.verifyEmail}`, {
@@ -320,7 +805,7 @@ export const authApi = {
             });
             const result = await response.json();
             if (!response.ok) {
-                throw new Error(result.message || 'Verification failed');
+                throw new Error(apiErrorMessage(result, 'Verification failed'));
             }
             return result;
         } catch (error: any) {
@@ -328,18 +813,26 @@ export const authApi = {
         }
     },
 
-    resendOTP: async (userId: string): Promise<any> => {
+    resendOTP: async (data: { email?: string; userId?: string }): Promise<any> => {
         try {
+            const payload: { email?: string; userId?: string } = {};
+            if (data.email?.trim()) payload.email = data.email.trim();
+            if (data.userId?.trim()) payload.userId = data.userId.trim();
+
+            if (!payload.email && !payload.userId) {
+                throw new Error('Email is required to resend the verification code');
+            }
+
             const response = await fetch(`${ENV.API_URL}${authApi.endpoints.resendOTP}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ userId }),
+                body: JSON.stringify(payload),
             });
             const result = await response.json();
             if (!response.ok) {
-                throw new Error(result.message || 'Failed to resend code');
+                throw new Error(apiErrorMessage(result, 'Failed to resend code'));
             }
             return result;
         } catch (error: any) {
@@ -376,7 +869,22 @@ export type PredictionInput = {
 export const predictionsApi = {
     run: async (input: PredictionInput): Promise<any> => {
         const formData = new FormData();
-        formData.append('image', input.image as any);
+        const filename = input.image.name || `soil-${Date.now()}.jpg`;
+        const type = input.image.type || 'image/jpeg';
+
+        // Web needs a real Blob/File; native uses { uri, name, type }.
+        if (typeof document !== 'undefined') {
+            const response = await fetch(input.image.uri);
+            const blob = await response.blob();
+            formData.append('image', blob, filename);
+        } else {
+            formData.append('image', {
+                uri: input.image.uri,
+                name: filename,
+                type,
+            } as any);
+        }
+
         formData.append('farmId', input.farmId);
         formData.append('temperature', input.temperature);
         formData.append('humidity', input.humidity);
@@ -427,30 +935,34 @@ export const predictionsApi = {
 
 export type SignupData = {
     email: string;
-    username: string;
     password: string;
+    firstName: string;
+    lastName?: string;
+    phoneNumber?: string;
 };
 
 export type SigninData = {
-    email: string;
+    email?: string;
+    phoneNumber?: string;
     password: string;
 };
 
 export type SignupResponse = {
     message: string;
     userId: string;
+    onboardingStep?: number;
 };
 
 export type SigninResponse = {
-    access_token: string;
+    access_token?: string;
     refresh_token?: string;
-    user: {
-        id: string;
-        email: string;
-        username: string;
-        isEmailVerified: boolean;
-        hasFarm: boolean;
-    };
+    expires_in?: string;
+    /** Present when email is not verified yet — no tokens issued */
+    isEmailVerified?: boolean;
+    message?: string;
+    userId?: string;
+    email?: string;
+    user?: AuthUser;
 };
 
 export type FarmData = {

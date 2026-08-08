@@ -1,15 +1,21 @@
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Image } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Image, BackHandler } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Ionicons, AntDesign } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { authApi, userHasFarm } from '@/services/api';
+import { authApi } from '@/services/api';
 import StatusModal from '@/components/ui/StatusModal';
+import { isFarmerRole } from '@/utils/userDisplay';
+import { getPostAuthRoute, persistAuthSession } from '@/utils/session';
+import { useSidebar } from '@/context/SidebarContext';
+
+const PHONE_RE = /^\+?[1-9]\d{1,14}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function SignIn() {
     const router = useRouter();
+    const { applyUser } = useSidebar();
     const [loading, setLoading] = useState(false);
     const [statusModal, setStatusModal] = useState({
         visible: false,
@@ -18,24 +24,38 @@ export default function SignIn() {
         message: '',
     });
     const [formData, setFormData] = useState({
-        email: '',
+        identifier: '',
         password: '',
     });
     const [errors, setErrors] = useState({
-        email: '',
+        identifier: '',
         password: '',
     });
     const [showPassword, setShowPassword] = useState(false);
 
     const validateForm = () => {
+        const id = formData.identifier.trim();
+        let identifierError = '';
+        if (!id) {
+            identifierError = 'Email or phone number is required';
+        } else if (id.includes('@')) {
+            if (!EMAIL_RE.test(id)) identifierError = 'Invalid email format';
+        } else if (PHONE_RE.test(id.replace(/[\s-]/g, ''))) {
+            // valid phone (allow spaces/dashes typed by user — normalized on submit)
+        } else if (/[a-zA-Z]/.test(id)) {
+            identifierError =
+                'Username login is not supported. Use your email or phone (e.g. +250788123456)';
+        } else {
+            identifierError = 'Use your email or phone in international format, e.g. +250788123456';
+        }
+
         const newErrors = {
-            email: !formData.email ? 'Email is required' :
-                !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email) ? 'Invalid email format' : '',
+            identifier: identifierError,
             password: !formData.password ? 'Password is required' : '',
         };
 
         setErrors(newErrors);
-        return Object.values(newErrors).every(error => error === '');
+        return Object.values(newErrors).every((error) => error === '');
     };
 
     const handleSignIn = async () => {
@@ -43,36 +63,43 @@ export default function SignIn() {
 
         setLoading(true);
         try {
-            const data = await authApi.signin({
-                email: formData.email,
-                password: formData.password,
-            });
+            const id = formData.identifier.trim();
+            const payload = id.includes('@')
+                ? { email: id, password: formData.password }
+                : { phoneNumber: id.replace(/[\s-]/g, ''), password: formData.password };
 
-            console.log('Login success:', data);
+            const data = await authApi.signin(payload);
 
-            // Handle unverified email response schema
+            // HTTP 200 special body — email not verified, no tokens
             if (data.isEmailVerified === false) {
-                router.push(`/verifyEmail?email=${encodeURIComponent(data.email)}&userId=${data.userId}`);
+                router.push(
+                    `/verifyEmail?email=${encodeURIComponent(data.email || (id.includes('@') ? id : ''))}&userId=${data.userId || ''}`,
+                );
                 return;
             }
 
-            // Store token and user info for verified users
-            if (data.access_token) {
-                await AsyncStorage.setItem('token', data.access_token);
-                if (data.refresh_token) {
-                    await AsyncStorage.setItem('refreshToken', data.refresh_token);
+            if (data.access_token && data.user) {
+                if (!isFarmerRole(data.user.role)) {
+                    setStatusModal({
+                        visible: true,
+                        type: 'info',
+                        title: 'Farmer app only',
+                        message:
+                            'This mobile app is for farmer accounts. Please use the web portal for your role.',
+                    });
+                    return;
                 }
-                await AsyncStorage.setItem('user', JSON.stringify(data.user));
 
-                // Navigate based on user state
-                if (userHasFarm(data.user)) {
-                    router.push('/(main)/dashboard');
-                } else {
-                    router.push('/RegisterFarm');
-                }
+                await persistAuthSession({
+                    accessToken: data.access_token,
+                    refreshToken: data.refresh_token,
+                    user: data.user,
+                });
+                await applyUser(data.user);
+
+                router.replace(getPostAuthRoute(data.user) as any);
             }
         } catch (error: any) {
-            // Professional status modal instead of alert
             setStatusModal({
                 visible: true,
                 type: 'error',
@@ -84,12 +111,16 @@ export default function SignIn() {
         }
     };
 
-    const handleBackPress = () => {
-        if (router.canGoBack()) {
-            router.back();
-        } else {
+    useEffect(() => {
+        const sub = BackHandler.addEventListener('hardwareBackPress', () => {
             router.replace('/');
-        }
+            return true;
+        });
+        return () => sub.remove();
+    }, [router]);
+
+    const handleBackPress = () => {
+        router.replace('/');
     };
 
     return (
@@ -106,7 +137,6 @@ export default function SignIn() {
                     <Text className="text-2xl font-bold">Sign in</Text>
                 </View>
 
-                {/* Illustration View */}
                 <View className="items-center justify-center my-8">
                     <Image
                         source={require('../assets/login-illustration.png')}
@@ -118,13 +148,16 @@ export default function SignIn() {
                 <View className="space-y-6 mt-8">
                     <View>
                         <TextInput
-                            placeholder="Email address"
-                            value={formData.email}
-                            onChangeText={(text) => setFormData({ ...formData, email: text })}
-                            className={`bg-gray-100 mb-4 p-4 rounded-lg ${errors.email ? 'border-red-500 border' : ''}`}
+                            placeholder="Email or phone (+250...), not username"
+                            value={formData.identifier}
+                            onChangeText={(text) => setFormData({ ...formData, identifier: text })}
+                            className={`bg-gray-100 mb-4 p-4 rounded-lg ${errors.identifier ? 'border-red-500 border' : ''}`}
                             keyboardType="email-address"
+                            autoCapitalize="none"
                         />
-                        {errors.email ? <Text className="text-red-500 text-sm mt-1">{errors.email}</Text> : null}
+                        {errors.identifier ? (
+                            <Text className="text-red-500 text-sm mt-1">{errors.identifier}</Text>
+                        ) : null}
                     </View>
 
                     <View className="relative">
@@ -169,21 +202,21 @@ export default function SignIn() {
                                 <AntDesign name="google" size={24} color="#DB4437" />
                             </TouchableOpacity>
                             <TouchableOpacity className="p-2">
+                                <Ionicons name="logo-facebook" size={24} color="#4267B2" />
+                            </TouchableOpacity>
+                            <TouchableOpacity className="p-2">
                                 <AntDesign name="twitter" size={24} color="#1DA1F2" />
                             </TouchableOpacity>
                             <TouchableOpacity className="p-2">
-                                <AntDesign name="facebook" size={24} color="#4267B2" />
-                            </TouchableOpacity>
-                            <TouchableOpacity className="p-2">
-                                <AntDesign name="instagram" size={24} color="#E4405F" />
+                                <AntDesign name="instagram" size={24} color="#E1306C" />
                             </TouchableOpacity>
                         </View>
                     </View>
 
-                    <View className="flex-row justify-center mt-6 mb-8">
-                        <Text className="text-gray-600">Don't have an account? </Text>
+                    <View className="flex-row justify-center mt-8 mb-10">
+                        <Text className="text-gray-500">Don't have an account? </Text>
                         <TouchableOpacity onPress={() => router.push('/signup')}>
-                            <Text className="text-[#0B4D26] font-semibold">Sign Up</Text>
+                            <Text className="text-[#0B4D26] font-semibold">Sign up</Text>
                         </TouchableOpacity>
                     </View>
                 </View>

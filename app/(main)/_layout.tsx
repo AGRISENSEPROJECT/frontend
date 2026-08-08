@@ -1,26 +1,42 @@
-import { View } from 'react-native';
+import { useEffect } from 'react';
+import { View, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useState } from 'react';
-import { Slot } from 'expo-router';
-import Sidebar from '../../components/Sidebar';
-import '../../global.css';
-import { SidebarContext } from '../../context/SidebarContext';
+import { Slot, useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
+/** Main tab shell — sidebar lives at the root so every screen can open it. */
 export default function MainLayout() {
-    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-    const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
+  const router = useRouter();
 
-    return (
-        <SidebarContext.Provider value={{ toggleSidebar }}>
-            <SafeAreaView className="flex-1 bg-white">
-                <View className="flex-1 bg-white">
-                    <Slot />
-                </View>
-                <Sidebar
-                    isOpen={isSidebarOpen}
-                    onClose={() => setIsSidebarOpen(false)}
-                />
-            </SafeAreaView>
-        </SidebarContext.Provider>
-    );
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const token = await AsyncStorage.getItem('token');
+      if (!mounted) return;
+      if (!token) router.replace('/signin');
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [router]);
+
+  return (
+    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+      <View style={styles.content}>
+        <Slot />
+      </View>
+    </SafeAreaView>
+  );
 }
+
+const styles = StyleSheet.create({
+  safe: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  content: {
+    flex: 1,
+    backgroundColor: '#fff',
+    position: 'relative',
+  },
+});

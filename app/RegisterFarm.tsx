@@ -10,13 +10,20 @@ import * as Location from 'expo-location';
 import { authApi } from '@/services/api';
 import { COUNTRIES, PROVINCES, DISTRICTS, SOIL_TYPES, SECTORS, CELLS, VILLAGES } from '@/constants/LocationData';
 import StatusModal from '@/components/ui/StatusModal';
+import { userDisplayName } from '@/utils/userDisplay';
+import { writeStoredUser } from '@/utils/session';
+
+type Phase = 'identity' | 'farm';
 
 export default function RegisterFarm() {
     const router = useRouter();
+    const [phase, setPhase] = useState<Phase>('farm');
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
     const [successVisible, setSuccessVisible] = useState(false);
     const [userData, setUserData] = useState<any>(null);
+    const [nationalId, setNationalId] = useState('');
+    const [identityError, setIdentityError] = useState('');
     const [statusModal, setStatusModal] = useState({
         visible: false,
         type: 'error' as 'error' | 'success' | 'info',
@@ -38,6 +45,8 @@ export default function RegisterFarm() {
         ownerName: '',
         phoneNumber: '',
         emailAddress: '',
+        latitude: null as number | null,
+        longitude: null as number | null,
     });
 
     useEffect(() => {
@@ -54,16 +63,38 @@ export default function RegisterFarm() {
                 const user = JSON.parse(userJson);
                 setUserData(user);
 
-                // Auto-fill owner details from user profile
                 setFormData(prev => ({
                     ...prev,
-                    ownerName: user.username || '',
-                    emailAddress: user.email || ''
+                    ownerName: userDisplayName(user),
+                    emailAddress: user.email || '',
+                    phoneNumber: user.phoneNumber || '',
                 }));
 
-                if (!user.isEmailVerified) {
-                    router.replace(`/verifyEmail?email=${encodeURIComponent(user.email)}&userId=${user.id}`);
+                if (user.isEmailVerified === false) {
+                    router.replace(`/verifyEmail?email=${encodeURIComponent(user.email || '')}&userId=${user.id || ''}`);
+                    return;
                 }
+
+                // Prefer live onboarding status from the backend.
+                let needsIdentity = !user.nationalIdVerified;
+                try {
+                    const status = await authApi.getOnboardingStatus();
+                    needsIdentity = !status.nationalIdVerified;
+                    const merged = {
+                        ...user,
+                        onboardingStep: status.onboardingStep,
+                        onboardingCompleted: status.onboardingCompleted,
+                        nationalIdVerified: status.nationalIdVerified,
+                        identityVerificationStatus: status.identityVerificationStatus,
+                        status: status.status || user.status,
+                    };
+                    setUserData(merged);
+                    await writeStoredUser(merged);
+                } catch {
+                    // Fall back to cached user flags
+                }
+
+                setPhase(needsIdentity ? 'identity' : 'farm');
             } catch (error) {
                 console.error('Error checking auth:', error);
             }
@@ -95,7 +126,9 @@ export default function RegisterFarm() {
 
     const handleSelect = (key: string, value: string, label: string) => {
         setFormData(prev => {
-            const newData = { ...prev, [key]: label };
+            // Soil type must match backend SoilType enum values (id), not display labels.
+            const stored = key === 'soilType' ? value : label;
+            const newData = { ...prev, [key]: stored };
             // Reset dependent fields
             if (key === 'country') {
                 newData.province = '';
@@ -138,8 +171,11 @@ export default function RegisterFarm() {
 
             setLoading(true);
             let location = await Location.getCurrentPositionAsync({});
-            const coords = `${location.coords.latitude.toFixed(6)}, ${location.coords.longitude.toFixed(6)}`;
-            setFormData(prev => ({ ...prev, gpsCoordinates: coords }));
+            setFormData(prev => ({
+                ...prev,
+                latitude: location.coords.latitude,
+                longitude: location.coords.longitude,
+            }));
             setLoading(false);
         } catch (error) {
             setLoading(false);
@@ -152,8 +188,42 @@ export default function RegisterFarm() {
         }
     };
 
+    const handleSubmitIdentity = async () => {
+        const id = nationalId.trim();
+        if (!/^[0-9]{16}$/.test(id)) {
+            setIdentityError('National ID must be exactly 16 digits');
+            return;
+        }
+        setIdentityError('');
+        setLoading(true);
+        try {
+            await authApi.submitOnboardingIdentity({
+                nationalId: id,
+                documentType: 'NATIONAL_ID',
+            });
+            const merged = {
+                ...(userData || {}),
+                nationalIdVerified: true,
+                identityVerificationStatus: 'VERIFIED',
+                onboardingStep: 3,
+            };
+            setUserData(merged);
+            await writeStoredUser(merged);
+            setPhase('farm');
+            setStep(1);
+        } catch (error: any) {
+            setStatusModal({
+                visible: true,
+                type: 'error',
+                title: 'Verification failed',
+                message: error.message || 'Could not verify national ID',
+            });
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleContinue = () => {
-        // Basic validation
         if (step === 1) {
             if (!formData.farmName || !formData.farmSize || !formData.soilType) {
                 setStatusModal({
@@ -165,8 +235,7 @@ export default function RegisterFarm() {
                 return;
             }
         } else if (step === 2) {
-            // The backend requires the full location down to village
-            if (!formData.country || !formData.province || !formData.district || !formData.sector || !formData.cell || !formData.village) {
+            if (!formData.province || !formData.district || !formData.sector || !formData.cell || !formData.village) {
                 setStatusModal({
                     visible: true,
                     type: 'info',
@@ -174,6 +243,9 @@ export default function RegisterFarm() {
                     message: 'Please fill in all location fields (including sector, cell and village) to continue',
                 });
                 return;
+            }
+            if (!formData.country) {
+                setFormData((prev) => ({ ...prev, country: 'Rwanda' }));
             }
         }
 
@@ -185,8 +257,9 @@ export default function RegisterFarm() {
     };
 
     const handleFinish = async () => {
-        // The backend requires ownerName and ownerEmail (phone is optional)
-        if (!formData.ownerName || !formData.emailAddress) {
+        const useOnboardingFarm = userData && !userData.onboardingCompleted && userData.nationalIdVerified;
+
+        if (!useOnboardingFarm && (!formData.ownerName || !formData.emailAddress)) {
             setStatusModal({
                 visible: true,
                 type: 'info',
@@ -210,15 +283,37 @@ export default function RegisterFarm() {
                 return;
             }
 
-            // The payload mapping is now handled inside the api service
-            await authApi.registerFarm(formData, token);
+            if (useOnboardingFarm) {
+                const result = await authApi.completeOnboardingFarm(formData);
+                const merged = {
+                    ...(userData || {}),
+                    hasFarm: true,
+                    farmsCount: Math.max(1, Number(userData?.farmsCount) || 0),
+                    onboardingCompleted: true,
+                    onboardingStep: result?.onboardingStep ?? 3,
+                    activeFarmId: result?.farmId || userData?.activeFarmId,
+                    status: 'ACTIVE',
+                    nationalIdVerified: true,
+                };
+                setUserData(merged);
+                await writeStoredUser(merged);
+                await AsyncStorage.removeItem('skipFarm');
+            } else {
+                await authApi.registerFarm(formData, token);
+                const merged = {
+                    ...(userData || {}),
+                    hasFarm: true,
+                    farmsCount: Math.max(1, Number(userData?.farmsCount) || 0),
+                };
+                setUserData(merged);
+                await writeStoredUser(merged);
+            }
 
-            // Update local user data if needed
-            const userJson = await AsyncStorage.getItem('user');
-            if (userJson) {
-                const user = JSON.parse(userJson);
-                user.hasFarm = true;
-                await AsyncStorage.setItem('user', JSON.stringify(user));
+            try {
+                const profile = await authApi.getProfile(token);
+                if (profile?.user) await writeStoredUser(profile.user);
+            } catch {
+                // local merge already saved
             }
 
             setLoading(false);
@@ -300,19 +395,65 @@ export default function RegisterFarm() {
             <Stack.Screen options={{ headerShown: false }} />
 
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => step > 1 ? setStep(step - 1) : router.back()}>
+                <TouchableOpacity
+                    onPress={() => {
+                        if (phase === 'farm' && step > 1) setStep(step - 1);
+                        else if (phase === 'farm' && userData && !userData.nationalIdVerified) setPhase('identity');
+                        else router.back();
+                    }}
+                >
                     <Ionicons name="arrow-back" size={28} color="black" />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={async () => {
-                    await AsyncStorage.setItem('skipFarm', 'true');
-                    router.push('/(main)/dashboard');
-                }}>
+                <TouchableOpacity
+                    onPress={async () => {
+                        await AsyncStorage.setItem('skipFarm', 'true');
+                        router.replace('/(main)/dashboard');
+                    }}
+                >
                     <Text style={styles.skipText}>Skip for now</Text>
                 </TouchableOpacity>
             </View>
 
+            {phase === 'identity' ? (
+                <Text style={styles.skipHint}>
+                    You can explore the app now. We'll remind you to verify your National ID before full farm onboarding.
+                </Text>
+            ) : null}
+
             <ScrollView contentContainerStyle={styles.scrollContent}>
-                {step === 1 && (
+                {phase === 'identity' && (
+                    <View>
+                        <Text style={styles.title}>Verify identity</Text>
+                        <Text style={styles.subtitle}>
+                            Enter your 16-digit Rwanda National ID to continue farmer onboarding.
+                        </Text>
+                        <TextInput
+                            style={styles.input}
+                            placeholder="National ID (16 digits)"
+                            value={nationalId}
+                            onChangeText={(text) => {
+                                setNationalId(text.replace(/[^0-9]/g, '').slice(0, 16));
+                                setIdentityError('');
+                            }}
+                            keyboardType="number-pad"
+                            maxLength={16}
+                        />
+                        {identityError ? <Text style={styles.errorText}>{identityError}</Text> : null}
+                        <TouchableOpacity
+                            style={[styles.primaryButton, loading && { opacity: 0.7 }]}
+                            onPress={handleSubmitIdentity}
+                            disabled={loading}
+                        >
+                            {loading ? (
+                                <ActivityIndicator color="#fff" />
+                            ) : (
+                                <Text style={styles.primaryButtonText}>Continue</Text>
+                            )}
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                {phase === 'farm' && step === 1 && (
                     <View>
                         <Text style={styles.title}>Register Farm</Text>
                         <Text style={styles.subtitle}>
@@ -336,7 +477,7 @@ export default function RegisterFarm() {
 
                         <TouchableOpacity style={styles.dropdownTrigger} onPress={() => toggleDropdown('soilType')}>
                             <Text style={formData.soilType ? styles.inputText : styles.placeholderText}>
-                                {formData.soilType || 'Soil Type'}
+                                {SOIL_TYPES.find((s) => s.id === formData.soilType)?.label || formData.soilType || 'Soil Type'}
                             </Text>
                             <Ionicons name={dropdowns.soilType ? "chevron-up" : "chevron-down"} size={20} color="black" />
                         </TouchableOpacity>
@@ -352,7 +493,7 @@ export default function RegisterFarm() {
                     </View>
                 )}
 
-                {step === 2 && (
+                {phase === 'farm' && step === 2 && (
                     <View>
                         <Text style={styles.title}>Location</Text>
                         <Text style={styles.subtitle}>
@@ -529,7 +670,7 @@ export default function RegisterFarm() {
                     </View>
                 )}
 
-                {step === 3 && (
+                {phase === 'farm' && step === 3 && (
                     <View>
                         <Text style={styles.title}>Farm Owner</Text>
                         <Text style={styles.subtitle}>
@@ -563,6 +704,7 @@ export default function RegisterFarm() {
                 )}
             </ScrollView>
 
+            {phase === 'farm' && (
             <View style={styles.footer}>
                 <TouchableOpacity style={styles.mainButton} onPress={handleContinue} disabled={loading}>
                     {loading ? (
@@ -573,6 +715,7 @@ export default function RegisterFarm() {
                 </TouchableOpacity>
                 <Text style={styles.copyright}>Copyright© 2024 AGRISENSE. All rights reserved.</Text>
             </View>
+            )}
 
             <SuccessPopup
                 visible={successVisible}
@@ -609,6 +752,14 @@ const styles = StyleSheet.create({
         color: '#6B7280',
         fontSize: 14,
         fontWeight: '500',
+    },
+    skipHint: {
+        paddingHorizontal: 20,
+        paddingBottom: 8,
+        color: '#6B7280',
+        fontSize: 12,
+        fontWeight: '500',
+        lineHeight: 17,
     },
     scrollContent: {
         paddingHorizontal: 30,
@@ -703,6 +854,25 @@ const styles = StyleSheet.create({
         color: 'white',
         fontSize: 18,
         fontWeight: 'bold',
+    },
+    primaryButton: {
+        backgroundColor: '#0B4D26',
+        width: '100%',
+        padding: 18,
+        borderRadius: 10,
+        alignItems: 'center',
+        marginTop: 12,
+    },
+    primaryButtonText: {
+        color: 'white',
+        fontSize: 18,
+        fontWeight: 'bold',
+    },
+    errorText: {
+        color: '#DC2626',
+        fontSize: 13,
+        fontWeight: '600',
+        marginBottom: 8,
     },
     copyright: {
         fontSize: 10,

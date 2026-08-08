@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, RefreshControl, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { authApi, predictionsApi, Recommendation } from '@/services/api';
 import PredictionForm from '@/components/recommendations/PredictionForm';
 import { humanize, formatEntry, cleanPayload, formatDate } from '@/components/recommendations/PayloadRows';
 import ResultFieldCard, { GrowthScoreBar } from '@/components/recommendations/ResultFieldCard';
+import NotificationBell from '@/components/NotificationBell';
+import { RecommendListSkeleton } from '@/components/ui/Skeleton';
+import { useSidebar } from '@/context/SidebarContext';
 
 const CATEGORIES = [
     { type: 'crop', icon: 'leaf-outline' as const, emoji: '🌱', title: 'Crop Recommendations', subtitle: 'Best crops based on soil, weather, and market demand.' },
@@ -74,8 +77,9 @@ function formatWeatherBlock(day: any): string | null {
 }
 
 /** Keep only the latest prediction run for a type, then unique crop names. */
-function filterActiveItems(items: Recommendation[], type: string): Recommendation[] {
-    const ofType = items.filter(item => item.type === type);
+function filterActiveItems(items: Recommendation[], type: string, predictionId?: string | null): Recommendation[] {
+    const source = predictionId ? items.filter(item => item.predictionId === predictionId) : items;
+    const ofType = source.filter(item => item.type === type);
     if (ofType.length === 0) return [];
 
     // Newest run first (createdAt DESC already from API, but be explicit).
@@ -120,6 +124,29 @@ function filterActiveItems(items: Recommendation[], type: string): Recommendatio
         if (!a.isPrimary && b.isPrimary) return 1;
         return (confidenceOf(b) ?? -1) - (confidenceOf(a) ?? -1);
     });
+}
+
+function getPredictionRuns(items: Recommendation[]) {
+    const groups = new Map<string, { id: string; createdAt: string; count: number }>();
+    for (const item of items) {
+        if (!item.predictionId) continue;
+        const existing = groups.get(item.predictionId);
+        if (!existing) {
+            groups.set(item.predictionId, {
+                id: item.predictionId,
+                createdAt: item.createdAt,
+                count: 1,
+            });
+        } else {
+            existing.count += 1;
+            if (new Date(item.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
+                existing.createdAt = item.createdAt;
+            }
+        }
+    }
+    return Array.from(groups.values()).sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
 }
 
 /** Build Figma-style field cards from a recommendation payload */
@@ -379,11 +406,14 @@ function UnavailablePanel({
 
 export default function Recommends() {
     const router = useRouter();
+    const { toggleSidebar } = useSidebar();
+    const params = useLocalSearchParams<{ predictionId?: string }>();
     const [view, setView] = useState<'loading' | 'list' | 'form'>('loading');
     const [refreshing, setRefreshing] = useState(false);
     const [items, setItems] = useState<Recommendation[]>([]);
     const [farms, setFarms] = useState<any[]>([]);
     const [selectedFarmId, setSelectedFarmId] = useState<string | null>(null);
+    const [selectedPredictionId, setSelectedPredictionId] = useState<string | null>(null);
     const [firstTime, setFirstTime] = useState(false);
     const [activeType, setActiveType] = useState('crop');
     const [choiceIndex, setChoiceIndex] = useState(0);
@@ -418,7 +448,14 @@ export default function Recommends() {
                     setFirstTime(true);
                     setView('form');
                 } else {
+                    const runs = getPredictionRuns(loaded);
                     const primary = loaded.find((r: any) => r.isPrimary) || loaded[0];
+                    const fromNotif =
+                        typeof params.predictionId === 'string' &&
+                        runs.some((r) => r.id === params.predictionId)
+                            ? params.predictionId
+                            : null;
+                    setSelectedPredictionId(fromNotif || runs[0]?.id || primary?.predictionId || null);
                     setActiveType(primary?.type || 'crop');
                     setChoiceIndex(0);
                     setView('list');
@@ -428,7 +465,7 @@ export default function Recommends() {
                 setView('form');
             }
         })();
-    }, [loadRecommendations]);
+    }, [loadRecommendations, params.predictionId]);
 
     const switchFarm = async (farm: any) => {
         if (farm.id === selectedFarmId) return;
@@ -440,10 +477,13 @@ export default function Recommends() {
         setItems(loaded);
         if (loaded.length === 0) {
             setFirstTime(true);
+            setSelectedPredictionId(null);
             setView('form');
         } else {
             setFirstTime(false);
+            const runs = getPredictionRuns(loaded);
             const primary = loaded.find((r: any) => r.isPrimary) || loaded[0];
+            setSelectedPredictionId(runs[0]?.id || primary?.predictionId || null);
             setActiveType(primary?.type || 'crop');
             setView('list');
         }
@@ -452,7 +492,12 @@ export default function Recommends() {
     const onRefresh = async () => {
         if (!selectedFarmId) return;
         setRefreshing(true);
-        setItems(await loadRecommendations(selectedFarmId));
+        const loaded = await loadRecommendations(selectedFarmId);
+        setItems(loaded);
+        const runs = getPredictionRuns(loaded);
+        if (!runs.some(run => run.id === selectedPredictionId)) {
+            setSelectedPredictionId(runs[0]?.id || null);
+        }
         setRefreshing(false);
     };
 
@@ -463,13 +508,16 @@ export default function Recommends() {
         setItems(loaded);
         setFirstTime(false);
         const hasCrop = (result?.recommendations || loaded).some((r: any) => r.type === 'crop');
+        const runs = getPredictionRuns(loaded);
+        setSelectedPredictionId(runs[0]?.id || loaded[0]?.predictionId || null);
         setActiveType(hasCrop ? 'crop' : (loaded[0]?.type || 'crop'));
         setChoiceIndex(0);
         setView('list');
     };
 
     const activeCategory = CATEGORIES.find(c => c.type === activeType) || CATEGORIES[0];
-    const activeItems = filterActiveItems(items, activeType);
+    const predictionRuns = getPredictionRuns(items);
+    const activeItems = filterActiveItems(items, activeType, selectedPredictionId);
 
     // For crop: Choice pills switch between alternatives. Other types: show primary / first only.
     const showChoices = activeType === 'crop' && activeItems.length > 1;
@@ -491,18 +539,14 @@ export default function Recommends() {
             <View style={styles.header}>
                 <View style={styles.headerRow}>
                     <TouchableOpacity
-                        onPress={() => {
-                            if (view === 'form' && items.length > 0) setView('list');
-                            else router.replace('/(main)/dashboard');
-                        }}
+                        onPress={toggleSidebar}
                         style={styles.headerBtn}
+                        accessibilityLabel="Open menu"
                     >
-                        <Ionicons name="arrow-back" size={24} color="#fff" />
+                        <Ionicons name="menu" size={24} color="#fff" />
                     </TouchableOpacity>
                     <Text style={styles.headerTitle}>Recommends</Text>
-                    <TouchableOpacity style={styles.headerBtn}>
-                        <Ionicons name="notifications-outline" size={24} color="#fff" />
-                    </TouchableOpacity>
+                    <NotificationBell color="#fff" size={24} />
                 </View>
 
                 {view === 'list' && (
@@ -516,9 +560,22 @@ export default function Recommends() {
                                         setActiveType(category.type);
                                         setChoiceIndex(0);
                                     }}
+                                    activeOpacity={0.88}
                                     style={[styles.iconTab, isActive && styles.iconTabActive]}
                                 >
-                                    <Ionicons name={category.icon} size={24} color={isActive ? '#34643F' : '#fff'} />
+                                    <View style={[styles.iconTabInner, isActive && styles.iconTabInnerActive]}>
+                                        <Ionicons
+                                            name={category.icon}
+                                            size={20}
+                                            color={isActive ? '#0B4D26' : 'rgba(255,255,255,0.85)'}
+                                        />
+                                    </View>
+                                    <Text
+                                        style={[styles.iconTabLabel, isActive && styles.iconTabLabelActive]}
+                                        numberOfLines={1}
+                                    >
+                                        {category.type === 'disease' ? 'Pests' : category.type.charAt(0).toUpperCase() + category.type.slice(1)}
+                                    </Text>
                                 </TouchableOpacity>
                             );
                         })}
@@ -526,11 +583,7 @@ export default function Recommends() {
                 )}
             </View>
 
-            {view === 'loading' && (
-                <View style={styles.centered}>
-                    <ActivityIndicator size="large" color="#34643F" />
-                </View>
-            )}
+            {view === 'loading' && <RecommendListSkeleton />}
 
             {view === 'form' && (
                 <PredictionForm onSuccess={handlePredictionSuccess} firstTime={firstTime} />
@@ -560,6 +613,40 @@ export default function Recommends() {
                                     );
                                 })}
                             </ScrollView>
+                        )}
+
+                        {predictionRuns.length > 1 && (
+                            <View style={styles.historyBox}>
+                                <View style={styles.historyHeader}>
+                                    <View>
+                                        <Text style={styles.historyTitle}>Prediction History</Text>
+                                        <Text style={styles.historySubtitle}>Switch between previous analysis runs</Text>
+                                    </View>
+                                    <Text style={styles.historyCount}>{predictionRuns.length} runs</Text>
+                                </View>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
+                                    {predictionRuns.map((run, index) => {
+                                        const selected = selectedPredictionId === run.id;
+                                        return (
+                                            <TouchableOpacity
+                                                key={run.id}
+                                                onPress={() => {
+                                                    setSelectedPredictionId(run.id);
+                                                    setChoiceIndex(0);
+                                                }}
+                                                style={[styles.historyChip, selected && styles.historyChipActive]}
+                                            >
+                                                <Text style={[styles.historyChipTitle, selected && styles.historyChipTitleActive]}>
+                                                    {index === 0 ? 'Latest' : `Run ${index + 1}`}
+                                                </Text>
+                                                <Text style={[styles.historyChipDate, selected && styles.historyChipDateActive]}>
+                                                    {formatDate(run.createdAt)}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </ScrollView>
+                            </View>
                         )}
 
                         {/* Section title */}
@@ -663,14 +750,52 @@ export default function Recommends() {
 }
 
 const styles = StyleSheet.create({
-    screen: { flex: 1, backgroundColor: '#34643F' },
-    header: { backgroundColor: '#34643F', paddingHorizontal: 16, paddingTop: 48, paddingBottom: 20 },
+    screen: { flex: 1, backgroundColor: '#0B4D26' },
+    header: { backgroundColor: '#0B4D26', paddingHorizontal: 16, paddingTop: 48, paddingBottom: 16 },
     headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     headerBtn: { padding: 8, marginHorizontal: -8 },
     headerTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
-    iconTabs: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16, paddingHorizontal: 4 },
-    iconTab: { width: 48, height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-    iconTabActive: { backgroundColor: '#fff' },
+    iconTabs: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginTop: 14,
+        gap: 4,
+    },
+    iconTab: {
+        flex: 1,
+        alignItems: 'center',
+        paddingVertical: 6,
+        borderRadius: 14,
+    },
+    iconTabActive: {
+        backgroundColor: 'rgba(255,255,255,0.12)',
+    },
+    iconTabInner: {
+        width: 42,
+        height: 42,
+        borderRadius: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(255,255,255,0.12)',
+    },
+    iconTabInnerActive: {
+        backgroundColor: '#fff',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.12,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    iconTabLabel: {
+        marginTop: 5,
+        color: 'rgba(255,255,255,0.7)',
+        fontSize: 10,
+        fontWeight: '700',
+    },
+    iconTabLabelActive: {
+        color: '#fff',
+        fontWeight: '800',
+    },
     sheet: {
         flex: 1,
         backgroundColor: '#F8F8F0',
@@ -682,29 +807,107 @@ const styles = StyleSheet.create({
     farmChip: {
         flexDirection: 'row',
         alignItems: 'center',
-        height: 34,
-        paddingHorizontal: 14,
+        height: 36,
+        paddingHorizontal: 12,
         borderRadius: 999,
         backgroundColor: '#fff',
-        borderWidth: 1,
+        borderWidth: 1.5,
         borderColor: '#D1D5DB',
         marginRight: 8,
+        gap: 6,
     },
-    farmChipActive: { backgroundColor: '#34643F', borderColor: '#34643F' },
-    farmChipText: { marginLeft: 4, fontSize: 13, fontWeight: '600', color: '#374151' },
-    farmChipTextActive: { color: '#fff' },
+    farmChipActive: {
+        backgroundColor: '#0B4D26',
+        borderColor: '#0B4D26',
+    },
+    farmChipText: { color: '#4B5563', fontWeight: '700', fontSize: 13 },
+    farmChipTextActive: { color: '#fff', fontWeight: '800' },
+    historyBox: {
+        backgroundColor: '#fff',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#E8E8E0',
+        padding: 12,
+        marginBottom: 16,
+    },
+    historyHeader: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+        marginBottom: 10,
+        gap: 10,
+    },
+    historyTitle: {
+        color: '#111827',
+        fontSize: 14,
+        fontWeight: '800',
+    },
+    historySubtitle: {
+        color: '#6B7280',
+        fontSize: 12,
+        fontWeight: '600',
+        marginTop: 2,
+    },
+    historyCount: {
+        color: '#34643F',
+        backgroundColor: '#E8F5E9',
+        fontSize: 11,
+        fontWeight: '800',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 999,
+        overflow: 'hidden',
+    },
+    historyChip: {
+        minWidth: 124,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#D1D5DB',
+        backgroundColor: '#FAFAF7',
+        paddingHorizontal: 12,
+        paddingVertical: 9,
+        marginRight: 8,
+    },
+    historyChipActive: {
+        backgroundColor: '#0B4D26',
+        borderColor: '#0B4D26',
+    },
+    historyChipTitle: {
+        color: '#374151',
+        fontSize: 13,
+        fontWeight: '800',
+    },
+    historyChipTitleActive: {
+        color: '#fff',
+    },
+    historyChipDate: {
+        color: '#6B7280',
+        fontSize: 11,
+        fontWeight: '600',
+        marginTop: 3,
+    },
+    historyChipDateActive: {
+        color: '#E8F5E9',
+    },
     sectionTitle: { color: '#34643F', fontSize: 18, fontWeight: '700' },
     sectionSubtitle: { color: '#4B5563', fontSize: 13, fontWeight: '500', marginTop: 4, lineHeight: 18 },
     choiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
     choicePill: {
         paddingHorizontal: 14,
-        paddingVertical: 8,
+        paddingVertical: 9,
         borderRadius: 999,
-        backgroundColor: '#E8EDE9',
+        backgroundColor: '#fff',
+        borderWidth: 1.5,
+        borderColor: '#D1D5DB',
+        minHeight: 38,
+        justifyContent: 'center',
     },
-    choicePillActive: { backgroundColor: '#34643F' },
+    choicePillActive: {
+        backgroundColor: '#0B4D26',
+        borderColor: '#0B4D26',
+    },
     choiceText: { fontSize: 13, fontWeight: '700', color: '#4B5563' },
-    choiceTextActive: { color: '#fff' },
+    choiceTextActive: { color: '#fff', fontWeight: '800' },
     emptyBox: {
         alignItems: 'center',
         paddingVertical: 40,
