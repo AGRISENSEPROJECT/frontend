@@ -171,6 +171,7 @@ export const authApi = {
         createPost: '/api/community/posts',
         getPosts: '/api/community/posts',
         likePost: (id: string) => `/api/community/posts/${id}/like`,
+        sharePost: (id: string) => `/api/community/posts/${id}/share`,
         commentPost: (id: string) => `/api/community/posts/${id}/comment`,
         deletePost: (id: string) => `/api/community/posts/${id}`,
         updatePost: (id: string) => `/api/community/posts/${id}`,
@@ -539,6 +540,12 @@ export const authApi = {
 
     likePost: async (postId: string): Promise<any> => {
         return await authenticatedFetch(authApi.endpoints.likePost(postId), {
+            method: 'POST',
+        });
+    },
+
+    sharePost: async (postId: string): Promise<any> => {
+        return await authenticatedFetch(authApi.endpoints.sharePost(postId), {
             method: 'POST',
         });
     },

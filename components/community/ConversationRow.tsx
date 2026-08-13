@@ -3,6 +3,8 @@ import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radius } from '@/constants/theme';
 import type { CommunityAuthor } from '@/services/api';
+import { formatPersonName, isDeletedAccount, userDisplayName } from '@/utils/userDisplay';
+import { sharedPostPreview } from '@/utils/sharedPost';
 
 type Author = CommunityAuthor;
 
@@ -35,9 +37,20 @@ export default function ConversationRow({
   online = false,
 }: Props) {
   const unread = (item.unreadCount || 0) > 0;
+  const peer = item.otherMembers?.[0];
+  const displayName =
+    mode === 'Group'
+      ? item.name || 'Group'
+      : isDeletedAccount(peer) || isDeletedAccount({ name: item.name })
+        ? 'Unavailable'
+        : formatPersonName(userDisplayName(peer)) || item.name || 'Farmer';
+  const preview =
+    sharedPostPreview(item.lastMessage?.content) ||
+    item.lastMessage?.content ||
+    'Say hello to get started';
   const avatarUri =
     mode === 'Inbox'
-      ? item.otherMembers?.[0]?.profileImage
+      ? peer?.profileImage
       : item.imageUrl;
 
   return (
@@ -60,7 +73,7 @@ export default function ConversationRow({
       <View style={styles.body}>
         <View style={styles.topLine}>
           <Text style={[styles.name, unread && styles.nameUnread]} numberOfLines={1}>
-            {item.name}
+            {displayName}
           </Text>
           {item.lastMessage?.createdAt ? (
             <Text style={styles.time}>
@@ -73,7 +86,7 @@ export default function ConversationRow({
             style={[styles.preview, unread && styles.previewUnread]}
             numberOfLines={1}
           >
-            {item.lastMessage?.content || 'Say hello to get started'}
+            {preview}
           </Text>
           {unread ? (
             <View style={styles.badge}>

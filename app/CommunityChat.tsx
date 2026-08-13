@@ -22,7 +22,8 @@ import { authApi, type CommunityAuthor } from '@/services/api';
 import { getCommunitySocket } from '@/services/communitySocket';
 import { colors, radius, space } from '@/constants/theme';
 import { ChatBubbleSkeleton } from '@/components/ui/Skeleton';
-import { isDeletedAccount, userDisplayName } from '@/utils/userDisplay';
+import { formatPersonName, isDeletedAccount, userDisplayName } from '@/utils/userDisplay';
+import { parseSharedPost } from '@/utils/sharedPost';
 import { usePresence } from '@/context/PresenceContext';
 
 type Author = CommunityAuthor;
@@ -80,7 +81,13 @@ export default function CommunityChat() {
       if (convo) {
         const peer = convo.otherMembers?.[0];
         const gone = convo.type !== 'group' && isDeletedAccount(peer);
-        setHeaderName(gone ? 'Unavailable' : convo.name || contactName);
+        setHeaderName(
+          gone
+            ? 'Unavailable'
+            : convo.type === 'group'
+              ? convo.name || contactName
+              : formatPersonName(userDisplayName(peer)) || contactName,
+        );
         setConversationType(convo.type === 'group' ? 'group' : 'direct');
         const avatar =
           convo.type === 'group'
@@ -395,6 +402,13 @@ export default function CommunityChat() {
     });
   };
 
+  const openSharedPost = (postId: string) => {
+    router.push({
+      pathname: '/(main)/community',
+      params: { postId },
+    });
+  };
+
   const peerId = members.find((m) => m.id && m.id !== me?.id)?.id;
   const peerOnline =
     conversationType === 'direct' && !!peerId && isOnline(peerId);
@@ -493,6 +507,7 @@ export default function CommunityChat() {
           renderItem={({ item, index }) => {
             const mine = item.sender?.id === me?.id;
             const showDivider = shouldShowDayDivider(index);
+            const shared = item.deletedAt ? null : parseSharedPost(item.content);
             return (
               <View>
                 {showDivider && (
@@ -517,21 +532,49 @@ export default function CommunityChat() {
                     <Pressable
                       onLongPress={() => openMessageActions(item)}
                       delayLongPress={280}
-                      style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}
+                      onPress={() => {
+                        if (shared?.postId) openSharedPost(shared.postId);
+                      }}
+                      style={[
+                        styles.bubble,
+                        mine ? styles.bubbleMine : styles.bubbleTheirs,
+                        shared ? styles.shareBubble : null,
+                      ]}
                     >
                       {!mine && conversationType === 'group' ? (
                         <Text style={styles.senderName}>
-                          {userDisplayName(item.sender)}
+                          {formatPersonName(userDisplayName(item.sender))}
                         </Text>
                       ) : null}
-                      <Text
-                        style={[
-                          styles.bubbleText,
-                          item.deletedAt && styles.bubbleDeleted,
-                        ]}
-                      >
-                        {item.deletedAt ? 'This message was deleted' : item.content}
-                      </Text>
+                      {item.deletedAt ? (
+                        <Text style={[styles.bubbleText, styles.bubbleDeleted]}>
+                          This message was deleted
+                        </Text>
+                      ) : shared ? (
+                        <View>
+                          <View style={styles.shareCardHead}>
+                            <Ionicons name="newspaper-outline" size={16} color={colors.forest} />
+                            <Text style={styles.shareCardLabel}>
+                              {shared.author
+                                ? `${shared.author} shared a post`
+                                : 'Shared post'}
+                            </Text>
+                          </View>
+                          {shared.title ? (
+                            <Text style={styles.shareCardTitle} numberOfLines={2}>
+                              {shared.title}
+                            </Text>
+                          ) : null}
+                          {shared.snippet ? (
+                            <Text style={styles.shareCardSnippet} numberOfLines={3}>
+                              {shared.snippet}
+                            </Text>
+                          ) : null}
+                          <Text style={styles.shareCardCta}>View post</Text>
+                        </View>
+                      ) : (
+                        <Text style={styles.bubbleText}>{item.content}</Text>
+                      )}
                     </Pressable>
                     <Text style={[styles.bubbleTime, mine && styles.bubbleTimeMine]}>
                       {item.editedAt && !item.deletedAt ? 'edited · ' : ''}
@@ -601,7 +644,7 @@ export default function CommunityChat() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colors.forest,
+    backgroundColor: colors.cream,
   },
   chatBody: {
     flex: 1,
@@ -609,7 +652,7 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: colors.forest,
     paddingHorizontal: space.md,
-    paddingBottom: 14,
+    paddingBottom: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
@@ -673,10 +716,7 @@ const styles = StyleSheet.create({
   },
   threadSheet: {
     flex: 1,
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    overflow: 'hidden',
+    backgroundColor: colors.cream,
   },
   loading: {
     flex: 1,
@@ -762,6 +802,40 @@ const styles = StyleSheet.create({
   bubbleDeleted: {
     fontStyle: 'italic',
     opacity: 0.8,
+  },
+  shareBubble: {
+    minWidth: 210,
+    paddingTop: 12,
+  },
+  shareCardHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  shareCardLabel: {
+    color: colors.forest,
+    fontSize: 12,
+    fontWeight: '800',
+    flex: 1,
+  },
+  shareCardTitle: {
+    color: '#1A1A1A',
+    fontSize: 15,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  shareCardSnippet: {
+    color: '#444',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  shareCardCta: {
+    marginTop: 8,
+    color: colors.forest,
+    fontSize: 12,
+    fontWeight: '800',
   },
   bubbleTime: {
     color: colors.textMuted,

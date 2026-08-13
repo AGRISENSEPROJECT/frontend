@@ -21,7 +21,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import * as Linking from 'expo-linking';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSidebar } from '../../context/SidebarContext';
 import { authApi } from '@/services/api';
@@ -32,6 +31,7 @@ import NotificationBell from '@/components/NotificationBell';
 import { colors, radius, shadow, space } from '@/constants/theme';
 import { usePresence } from '@/context/PresenceContext';
 import { formatPersonName, isDeletedAccount, userDisplayName } from '@/utils/userDisplay';
+import { encodeSharedPost } from '@/utils/sharedPost';
 import type { CommunityAuthor } from '@/services/api';
 import {
   FeedPostSkeleton,
@@ -98,6 +98,15 @@ type Conversation = {
   members?: Author[];
 };
 
+const PUBLIC_SHARE_ORIGIN = 'https://agrisense.rw';
+
+function conversationTitle(c: Conversation) {
+  if (c.type === 'group') return c.name || 'Group';
+  const peer = c.otherMembers?.[0];
+  if (isDeletedAccount(peer) || isDeletedAccount({ name: c.name })) return 'Unavailable';
+  return formatPersonName(userDisplayName(peer)) || c.name || 'Farmer';
+}
+
 export default function Community() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -117,7 +126,10 @@ export default function Community() {
   const [shareBusy, setShareBusy] = useState(false);
   const [feedMenuVisible, setFeedMenuVisible] = useState(false);
   const [posts, setPosts] = useState<Post[]>([]);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [inboxConversations, setInboxConversations] = useState<Conversation[]>([]);
+  const [groupConversations, setGroupConversations] = useState<Conversation[]>([]);
+  const [inboxLoaded, setInboxLoaded] = useState(false);
+  const [groupLoaded, setGroupLoaded] = useState(false);
   const [inboxUnread, setInboxUnread] = useState(0);
   const [groupUnread, setGroupUnread] = useState(0);
   const [conversationsRefreshing, setConversationsRefreshing] = useState(false);
@@ -128,7 +140,6 @@ export default function Community() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [feedPage, setFeedPage] = useState(1);
   const [hasMorePosts, setHasMorePosts] = useState(true);
-  const [conversationsLoading, setConversationsLoading] = useState(false);
 
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
@@ -284,19 +295,22 @@ export default function Community() {
     [loadMorePosts],
   );
 
-  const fetchConversations = useCallback(async (type?: 'direct' | 'group') => {
-    setConversationsLoading(true);
+  const fetchConversations = useCallback(async (type: 'direct' | 'group') => {
     try {
       const data = await authApi.listConversations(type);
       const list = Array.isArray(data) ? data : [];
-      // Unread conversations float to the top — WhatsApp-style
       list.sort((a, b) => (b.unreadCount || 0) - (a.unreadCount || 0));
-      setConversations(list);
+      if (type === 'group') {
+        setGroupConversations(list);
+        setGroupLoaded(true);
+      } else {
+        setInboxConversations(list);
+        setInboxLoaded(true);
+      }
     } catch (error) {
       console.error('Error fetching conversations:', error);
-      setConversations([]);
-    } finally {
-      setConversationsLoading(false);
+      if (type === 'group') setGroupLoaded(true);
+      else setInboxLoaded(true);
     }
   }, []);
 
@@ -422,12 +436,10 @@ export default function Community() {
     return title;
   };
 
-  const sharePayload = (post: Post) => {
+  const sharePayload = (post: Post, shareUrl?: string) => {
     const title = visiblePostTitle(post);
     const body = [title, post.description].filter(Boolean).join('\n\n');
-    const url = Linking.createURL('/(main)/community', {
-      queryParams: { postId: post.id },
-    });
+    const url = shareUrl || `${PUBLIC_SHARE_ORIGIN}/community?postId=${post.id}`;
     return {
       title: title || 'Farming Community',
       text: body || 'Check this post on Agrisense',
@@ -436,17 +448,36 @@ export default function Community() {
     };
   };
 
-  const bumpShareCount = (postId: string) => {
+  const applyShareCount = (postId: string, shareCount?: number) => {
+    const next = Number(shareCount);
+    const useServer = Number.isFinite(next);
     setPosts((prev) =>
       prev.map((p) =>
-        p.id === postId ? { ...p, shareCount: (p.shareCount || 0) + 1 } : p,
+        p.id === postId
+          ? { ...p, shareCount: useServer ? next : (p.shareCount || 0) + 1 }
+          : p,
       ),
     );
     setSelectedPost((prev) =>
       prev && prev.id === postId
-        ? { ...prev, shareCount: (prev.shareCount || 0) + 1 }
+        ? {
+            ...prev,
+            shareCount: useServer ? next : (prev.shareCount || 0) + 1,
+          }
         : prev,
     );
+  };
+
+  const persistShare = async (postId: string) => {
+    try {
+      const res = await authApi.sharePost(postId);
+      applyShareCount(postId, res?.shareCount);
+      return res;
+    } catch (error) {
+      console.warn('sharePost failed', error);
+      applyShareCount(postId);
+      return null;
+    }
   };
 
   const openShareSheet = async (post: Post) => {
@@ -482,22 +513,30 @@ export default function Community() {
           url: payload.url,
         });
       }
-      bumpShareCount(post.id);
+      const res = await persistShare(post.id);
       setSharePostTarget(null);
+      if (!res) {
+        setStatusModal({
+          visible: true,
+          type: 'info',
+          title: 'Shared',
+          message: 'Shared on this device, but the count may not save until the server is updated.',
+        });
+      }
     } catch {
       // cancelled
     }
   };
 
   const copyShareLink = async (post: Post) => {
-    const payload = sharePayload(post);
     try {
+      const res = await persistShare(post.id);
+      const payload = sharePayload(post, res?.shareUrl);
       if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(payload.message);
+        await navigator.clipboard.writeText(payload.url);
       } else {
-        await Share.share({ message: payload.message, title: payload.title });
+        await Share.share({ message: payload.url, title: payload.title });
       }
-      bumpShareCount(post.id);
       setSharePostTarget(null);
       setStatusModal({
         visible: true,
@@ -519,17 +558,21 @@ export default function Community() {
     if (!sharePostTarget) return;
     setShareBusy(true);
     try {
-      const payload = sharePayload(sharePostTarget);
-      const author = userDisplayName(sharePostTarget.author);
+      const author = formatPersonName(userDisplayName(sharePostTarget.author));
       await authApi.sendConversationMessage(
         conversation.id,
-        `📢 ${author} shared a post\n${payload.message}`,
+        encodeSharedPost({
+          postId: sharePostTarget.id,
+          title: visiblePostTitle(sharePostTarget),
+          snippet: (sharePostTarget.description || '').trim().slice(0, 140),
+          author,
+        }),
       );
-      bumpShareCount(sharePostTarget.id);
+      await persistShare(sharePostTarget.id);
       setSharePostTarget(null);
       router.push({
         pathname: '/CommunityChat',
-        params: { id: conversation.id, name: conversation.name },
+        params: { id: conversation.id, name: conversationTitle(conversation) },
       });
     } catch (error: any) {
       setStatusModal({
@@ -1133,6 +1176,10 @@ export default function Community() {
       })
     : activeContacts;
 
+  const conversations =
+    communityTab === 'Group' ? groupConversations : inboxConversations;
+  const conversationsLoading =
+    communityTab === 'Group' ? !groupLoaded : !inboxLoaded;
   const activeConversations = conversations.filter((c) => {
     if (c.type === 'group') return true;
     return !isDeletedAccount(c.otherMembers?.[0]) && !isDeletedAccount({ name: c.name });
@@ -1526,11 +1573,12 @@ export default function Community() {
                   onPress={() => {
                     const unread = Number(item.unreadCount) || 0;
                     if (unread > 0) {
-                      setConversations((prev) =>
+                      const zero = (prev: Conversation[]) =>
                         prev.map((c) =>
                           c.id === item.id ? { ...c, unreadCount: 0 } : c,
-                        ),
-                      );
+                        );
+                      if (communityTab === 'Inbox') setInboxConversations(zero);
+                      else setGroupConversations(zero);
                       if (communityTab === 'Inbox') {
                         setInboxUnread((n) => Math.max(0, n - unread));
                       } else {
@@ -1539,7 +1587,7 @@ export default function Community() {
                     }
                     router.push({
                       pathname: '/CommunityChat',
-                      params: { id: item.id, name: item.name },
+                      params: { id: item.id, name: conversationTitle(item) },
                     });
                   }}
                 />
@@ -2162,7 +2210,7 @@ export default function Community() {
                     />
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={styles.shareChatName} numberOfLines={1}>
-                        {item.name}
+                        {conversationTitle(item)}
                       </Text>
                       <Text style={styles.shareChatMeta} numberOfLines={1}>
                         {item.type === 'group' ? 'Group' : 'Inbox'}

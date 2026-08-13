@@ -103,7 +103,11 @@ export default function ContactProfile() {
   );
   const displayName = otherDeleted
     ? 'Unavailable'
-    : conversation?.name || (params.name as string) || (isGroup ? 'Group' : 'Farmer');
+    : isGroup
+      ? conversation?.name || (params.name as string) || 'Group'
+      : formatPersonName(userDisplayName(other)) ||
+        formatPersonName(String(params.name || '')) ||
+        'Farmer';
   const avatarUri = isGroup ? conversation?.imageUrl : other?.profileImage;
   const canManageGroup =
     isGroup &&
@@ -397,7 +401,7 @@ export default function ContactProfile() {
 
       <View style={styles.sheet}>
       {loading ? (
-        <View style={{ paddingTop: 72, paddingHorizontal: 20 }}>
+        <View style={{ paddingTop: 24, paddingHorizontal: 20 }}>
           <ProfileSkeleton />
         </View>
       ) : !conversationId ? (
@@ -571,7 +575,11 @@ export default function ContactProfile() {
               onPress={isGroup ? confirmLeave : confirmBlock}
             >
               <Text style={styles.dangerText}>
-                {isGroup ? 'Leave group' : 'Block this number'}
+                {isGroup
+                  ? 'Leave group'
+                  : phoneLabel
+                    ? 'Block this number'
+                    : 'Block this user'}
               </Text>
             </TouchableOpacity>
           )}
@@ -754,11 +762,11 @@ export default function ContactProfile() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.forest },
+  screen: { flex: 1, backgroundColor: colors.cream },
   header: {
     backgroundColor: colors.forest,
     paddingHorizontal: space.md,
-    paddingBottom: 52,
+    paddingBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -793,17 +801,13 @@ const styles = StyleSheet.create({
   sheet: {
     flex: 1,
     backgroundColor: colors.cream,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    marginTop: -36,
-    overflow: 'hidden',
   },
   centered: { alignItems: 'center', justifyContent: 'center', padding: 24 },
   emptyText: { color: colors.textMuted, fontWeight: '600', marginBottom: 16 },
-  content: { paddingHorizontal: space.lg, paddingTop: 0 },
+  content: { paddingHorizontal: space.lg, paddingTop: 8 },
   hero: { alignItems: 'center', marginBottom: space.lg },
   avatarWrap: {
-    marginTop: -52,
+    marginTop: 16,
   },
   avatar: {
     width: 112,
