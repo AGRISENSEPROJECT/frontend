@@ -144,6 +144,7 @@ export type CommunityAuthor = {
     displayName?: string | null;
     online?: boolean;
     deleted?: boolean;
+    banned?: boolean;
     status?: string | null;
 };
 

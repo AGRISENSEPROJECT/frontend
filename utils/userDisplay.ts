@@ -7,6 +7,7 @@ export type DisplayableUser = {
   username?: string | null;
   email?: string | null;
   deleted?: boolean | null;
+  banned?: boolean | null;
   status?: string | null;
 };
 
@@ -23,6 +24,8 @@ export function userDisplayName(
   opts?: { preferNames?: boolean },
 ): string {
   if (!user) return 'Farmer';
+  if (isDeletedUserFlag(user)) return 'Deleted account';
+  if (isBannedUserFlag(user)) return 'Banned account';
   const fromNames = [user.firstName, user.lastName]
     .filter((part) => part && !looksLikeEmail(part))
     .join(' ')
@@ -58,14 +61,11 @@ export function formatPersonName(name: string): string {
   return value;
 }
 
-export function isDeletedAccount(
-  user?: DisplayableUser | { name?: string | null; deleted?: boolean | null } | null,
-): boolean {
-  if (!user) return false;
-  if ('deleted' in user && user.deleted) return true;
-  const status = 'status' in user ? String(user.status || '').toUpperCase() : '';
-  if (status === 'BANNED' || status === 'DELETED') return true;
-  const label = [
+function accountLabel(
+  user?: DisplayableUser | { name?: string | null; deleted?: boolean | null; banned?: boolean | null } | null,
+) {
+  if (!user) return '';
+  return [
     'displayName' in user ? user.displayName : null,
     'username' in user ? user.username : null,
     'name' in user ? user.name : null,
@@ -73,7 +73,31 @@ export function isDeletedAccount(
     .filter(Boolean)
     .join(' ')
     .toLowerCase();
-  return label.includes('deleted account');
+}
+
+function isDeletedUserFlag(
+  user?: DisplayableUser | { name?: string | null; deleted?: boolean | null } | null,
+): boolean {
+  if (!user) return false;
+  if ('deleted' in user && user.deleted) return true;
+  return accountLabel(user).includes('deleted account');
+}
+
+function isBannedUserFlag(
+  user?: DisplayableUser | { name?: string | null; banned?: boolean | null } | null,
+): boolean {
+  if (!user || isDeletedUserFlag(user)) return false;
+  if ('banned' in user && user.banned) return true;
+  const status = 'status' in user ? String(user.status || '').toUpperCase() : '';
+  if (status === 'BANNED') return true;
+  return accountLabel(user).includes('banned account');
+}
+
+/** True when the account should not appear as an active community member. */
+export function isDeletedAccount(
+  user?: DisplayableUser | { name?: string | null; deleted?: boolean | null; banned?: boolean | null } | null,
+): boolean {
+  return isDeletedUserFlag(user) || isBannedUserFlag(user);
 }
 
 export function isFarmerRole(role?: string | null): boolean {
