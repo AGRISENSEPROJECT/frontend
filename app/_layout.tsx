@@ -60,6 +60,7 @@ export default function RootLayout() {
                     <Stack.Screen name="RegisterFarm" options={{ headerShown: false }} />
                     <Stack.Screen name="CommunityChat" options={{ headerShown: false }} />
                     <Stack.Screen name="ContactProfile" options={{ headerShown: false }} />
+                    <Stack.Screen name="Notifications" options={{ headerShown: false }} />
                     <Stack.Screen name="+not-found" />
                 </Stack>
                 <StatusBar style="auto" />

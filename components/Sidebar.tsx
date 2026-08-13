@@ -27,6 +27,7 @@ const menuItems = [
   { icon: 'leaf-outline', activeIcon: 'leaf', label: 'Recommends', route: '/recommends', match: ['recommends', 'CropRecommendation', 'IrrigationRecommendation', 'PestDiseaseRecommendation', 'FertilizerRecommendation', 'WeatherRecommendation'] },
   { icon: 'cloudy-outline', activeIcon: 'cloudy', label: 'Weather', route: '/(main)/weather', match: ['weather', 'forecast'] },
   { icon: 'people-outline', activeIcon: 'people', label: 'Community', route: '/(main)/community', match: ['community', 'CommunityChat'] },
+  { icon: 'notifications-outline', activeIcon: 'notifications', label: 'Notifications', route: '/Notifications', match: ['Notifications'] },
   { icon: 'settings-outline', activeIcon: 'settings', label: 'Settings', route: '/(main)/settings', match: ['settings'] },
 ] as const;
 

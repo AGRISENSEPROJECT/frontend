@@ -23,7 +23,7 @@ export type AppNotification = {
 const STORAGE_KEY = 'app_notifications_v1';
 const SEEN_RUNS_KEY = 'notif_seen_prediction_runs_v1';
 const FEATURE_SEED_KEY = 'notif_feature_seed_v1';
-const MAX_ITEMS = 40;
+const MAX_ITEMS = 100;
 
 function makeId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -141,6 +141,18 @@ export async function markAllNotificationsRead(
   if (!uid) return [];
   const current = await loadNotifications(uid);
   const next = current.map((n) => ({ ...n, read: true }));
+  await saveNotifications(next, uid);
+  return next;
+}
+
+export async function removeNotification(
+  id: string,
+  userId?: string | null,
+): Promise<AppNotification[]> {
+  const uid = await resolveUserId(userId);
+  if (!uid) return [];
+  const current = await loadNotifications(uid);
+  const next = current.filter((n) => n.id !== id);
   await saveNotifications(next, uid);
   return next;
 }

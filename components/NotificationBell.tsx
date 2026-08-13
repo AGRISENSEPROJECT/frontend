@@ -11,8 +11,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useNotifications } from '@/context/NotificationContext';
-import { notificationIcon, timeAgoShort } from '@/services/notifications';
 import { colors, radius, shadow } from '@/constants/theme';
+import NotificationRow from '@/components/NotificationRow';
+
+const PREVIEW_COUNT = 6;
 
 type Props = {
   color?: string;
@@ -41,6 +43,13 @@ export default function NotificationBell({ color = '#fff', size = 24 }: Props) {
   const handleClearAll = async () => {
     await clearAll();
   };
+
+  const openAll = () => {
+    setOpen(false);
+    setTimeout(() => router.push('/Notifications'), 80);
+  };
+
+  const preview = notifications.slice(0, PREVIEW_COUNT);
 
   return (
     <>
@@ -87,36 +96,23 @@ export default function NotificationBell({ color = '#fff', size = 24 }: Props) {
                   </Text>
                 </View>
               ) : (
-                notifications.map((item) => (
-                  <TouchableOpacity
+                preview.map((item) => (
+                  <NotificationRow
                     key={item.id}
-                    style={[styles.item, !item.read && styles.itemUnread]}
-                    activeOpacity={0.85}
+                    item={item}
                     onPress={() => handlePressItem(item.id, item.route, item.params)}
-                  >
-                    <View style={[styles.iconWrap, !item.read && styles.iconWrapUnread]}>
-                      <Ionicons
-                        name={notificationIcon(item.type) as any}
-                        size={18}
-                        color={colors.brand}
-                      />
-                    </View>
-                    <View style={styles.itemBody}>
-                      <View style={styles.itemTop}>
-                        <Text style={styles.itemTitle} numberOfLines={1}>
-                          {item.title}
-                        </Text>
-                        <Text style={styles.itemTime}>{timeAgoShort(item.createdAt)}</Text>
-                      </View>
-                      <Text style={styles.itemText} numberOfLines={2}>
-                        {item.body}
-                      </Text>
-                    </View>
-                    {!item.read && <View style={styles.dot} />}
-                  </TouchableOpacity>
+                  />
                 ))
               )}
             </ScrollView>
+            <TouchableOpacity
+              style={styles.seeAll}
+              onPress={openAll}
+              accessibilityLabel="See all notifications"
+            >
+              <Text style={styles.seeAllText}>See all notifications</Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.forest} />
+            </TouchableOpacity>
           </Pressable>
         </Pressable>
       </Modal>
@@ -220,59 +216,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
   },
-  item: {
+  seeAll: {
+    minHeight: 48,
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 12,
-  },
-  itemUnread: {
-    backgroundColor: colors.brandWash,
-  },
-  iconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
   },
-  iconWrapUnread: {
-    backgroundColor: colors.brandMuted,
-  },
-  itemBody: {
-    flex: 1,
-  },
-  itemTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  itemTitle: {
-    flex: 1,
+  seeAllText: {
+    color: colors.forest,
     fontSize: 14,
     fontWeight: '800',
-    color: colors.text,
-  },
-  itemTime: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.textMuted,
-  },
-  itemText: {
-    marginTop: 3,
-    fontSize: 13,
-    lineHeight: 18,
-    color: colors.textSecondary,
-    fontWeight: '500',
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.unread,
-    marginTop: 6,
   },
 });

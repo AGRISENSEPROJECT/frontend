@@ -25,6 +25,7 @@ import {
   saveNotifications,
   seedFeatureNotifications,
   clearNotifications,
+  removeNotification,
 } from '@/services/notifications';
 import { userDisplayName } from '@/utils/userDisplay';
 
@@ -41,6 +42,7 @@ type NotificationContextValue = {
   ) => Promise<void>;
   markRead: (id: string) => Promise<void>;
   markAllRead: () => Promise<void>;
+  remove: (id: string) => Promise<void>;
   clearAll: () => Promise<void>;
 };
 
@@ -51,6 +53,7 @@ const NotificationContext = createContext<NotificationContextValue>({
   push: async () => undefined,
   markRead: async () => undefined,
   markAllRead: async () => undefined,
+  remove: async () => undefined,
   clearAll: async () => undefined,
 });
 
@@ -77,7 +80,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     let merged = local;
     try {
-      const remote = await authApi.getNotifications({ limit: 40 });
+      const remote = await authApi.getNotifications({ limit: 100 });
       if (gen !== loadGen.current) return;
       const mapped = (remote?.items || [])
         .map(mapServerNotification)
@@ -152,6 +155,25 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       // ignore
     }
   }, []);
+
+  const isServerId = (id: string, meta?: Record<string, string>) =>
+    meta?.source === 'server' ||
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      id,
+    );
+
+  const remove = useCallback(async (id: string) => {
+    const uid = userIdRef.current;
+    if (!uid) return;
+    const target = notifications.find((n) => n.id === id);
+    const next = await removeNotification(id, uid);
+    setNotifications(next);
+    try {
+      if (isServerId(id, target?.meta)) await authApi.deleteNotification(id);
+    } catch {
+      // Local remove still applied
+    }
+  }, [notifications]);
 
   const clearAll = useCallback(async () => {
     const uid = userIdRef.current;
@@ -307,9 +329,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       push,
       markRead,
       markAllRead,
+      remove,
       clearAll,
     }),
-    [notifications, unreadCount, refresh, push, markRead, markAllRead, clearAll],
+    [notifications, unreadCount, refresh, push, markRead, markAllRead, remove, clearAll],
   );
 
   return (
