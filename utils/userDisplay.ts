@@ -6,6 +6,8 @@ export type DisplayableUser = {
   displayName?: string | null;
   username?: string | null;
   email?: string | null;
+  deleted?: boolean | null;
+  status?: string | null;
 };
 
 function looksLikeEmail(value?: string | null) {
@@ -54,6 +56,24 @@ export function formatPersonName(name: string): string {
       .replace(/(^|[\s'-])(\w)/g, (_, lead: string, char: string) => lead + char.toUpperCase());
   }
   return value;
+}
+
+export function isDeletedAccount(
+  user?: DisplayableUser | { name?: string | null; deleted?: boolean | null } | null,
+): boolean {
+  if (!user) return false;
+  if ('deleted' in user && user.deleted) return true;
+  const status = 'status' in user ? String(user.status || '').toUpperCase() : '';
+  if (status === 'BANNED' || status === 'DELETED') return true;
+  const label = [
+    'displayName' in user ? user.displayName : null,
+    'username' in user ? user.username : null,
+    'name' in user ? user.name : null,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return label.includes('deleted account');
 }
 
 export function isFarmerRole(role?: string | null): boolean {

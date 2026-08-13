@@ -21,7 +21,7 @@ import { authApi, type CommunityAuthor } from '@/services/api';
 import StatusModal from '@/components/ui/StatusModal';
 import { colors, radius, shadow, space } from '@/constants/theme';
 import { ProfileSkeleton } from '@/components/ui/Skeleton';
-import { userDisplayName } from '@/utils/userDisplay';
+import { formatPersonName, isDeletedAccount, userDisplayName } from '@/utils/userDisplay';
 
 type Author = CommunityAuthor;
 
@@ -58,6 +58,7 @@ export default function ContactProfile() {
   const [conversation, setConversation] = useState<ConversationDetail | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [groupName, setGroupName] = useState('');
+  const [menuVisible, setMenuVisible] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [statusModal, setStatusModal] = useState({
     visible: false,
@@ -96,8 +97,13 @@ export default function ContactProfile() {
 
   const isGroup = conversation?.type === 'group';
   const other = conversation?.otherMembers?.[0];
-  const displayName =
-    conversation?.name || (params.name as string) || (isGroup ? 'Group' : 'Farmer');
+  const otherDeleted = !isGroup && isDeletedAccount(other);
+  const visibleMembers = (conversation?.members || []).filter(
+    (m) => m.id === meId || !isDeletedAccount(m),
+  );
+  const displayName = otherDeleted
+    ? 'Unavailable'
+    : conversation?.name || (params.name as string) || (isGroup ? 'Group' : 'Farmer');
   const avatarUri = isGroup ? conversation?.imageUrl : other?.profileImage;
   const canManageGroup =
     isGroup &&
@@ -292,7 +298,7 @@ export default function ContactProfile() {
       await authApi.leaveConversation(conversationId);
       router.replace({
         pathname: '/(main)/community',
-        params: { tab: 'groups' },
+        params: { tab: isGroup ? 'groups' : 'messages' },
       });
     } catch (error: any) {
       setStatusModal({
@@ -379,20 +385,14 @@ export default function ContactProfile() {
         >
           <Ionicons name="arrow-back" size={22} color="#fff" />
         </TouchableOpacity>
-        {canManageGroup ? (
-          <TouchableOpacity
-            onPress={() => {
-              setGroupName(displayName);
-              setEditingName(true);
-            }}
-            hitSlop={8}
-            accessibilityLabel="Edit group"
-          >
-            <Text style={styles.headerEdit}>Edit contact</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.headerBtn} />
-        )}
+        <TouchableOpacity
+          onPress={() => setMenuVisible(true)}
+          style={styles.headerBtn}
+          hitSlop={8}
+          accessibilityLabel="More options"
+        >
+          <Ionicons name="ellipsis-horizontal" size={22} color="#fff" />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.sheet}>
@@ -471,13 +471,16 @@ export default function ContactProfile() {
                 <Text style={styles.displayName}>{displayName}</Text>
                 {isGroup ? (
                   <Text style={styles.memberCount}>
-                    {conversation?.members?.length || 0} members
+                    {visibleMembers.length} member{visibleMembers.length === 1 ? '' : 's'}
                   </Text>
+                ) : otherDeleted ? (
+                  <Text style={styles.memberCount}>This account is no longer available</Text>
                 ) : null}
               </>
             )}
           </View>
 
+          {!otherDeleted ? (
           <View style={styles.actionRow}>
             <TouchableOpacity
               style={styles.actionTile}
@@ -487,19 +490,10 @@ export default function ContactProfile() {
               <Ionicons name="chatbubble-outline" size={22} color="#333" />
               <Text style={styles.actionTileText}>Message</Text>
             </TouchableOpacity>
-            {isGroup && canManageGroup ? (
-              <TouchableOpacity
-                style={styles.actionTile}
-                onPress={openAddMembers}
-                activeOpacity={0.88}
-              >
-                <Ionicons name="person-add-outline" size={22} color="#333" />
-                <Text style={styles.actionTileText}>Add</Text>
-              </TouchableOpacity>
-            ) : null}
           </View>
+          ) : null}
 
-          {!isGroup && other ? (
+          {!isGroup && other && !otherDeleted ? (
             <View style={styles.infoCard}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.infoTitle}>
@@ -528,7 +522,7 @@ export default function ContactProfile() {
                   </TouchableOpacity>
                 ) : null}
               </View>
-              {(conversation?.members || []).map((m) => (
+              {visibleMembers.map((m) => (
                 <View key={m.id} style={styles.memberRow}>
                   <Image
                     source={
@@ -540,7 +534,7 @@ export default function ContactProfile() {
                   />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={styles.memberName} numberOfLines={1}>
-                      {userDisplayName(m)}
+                      {formatPersonName(userDisplayName(m))}
                       {m.id === meId ? ' (you)' : ''}
                     </Text>
                     {m.id === conversation?.createdById ? (
@@ -567,14 +561,20 @@ export default function ContactProfile() {
             </View>
           ) : null}
 
-          <TouchableOpacity
-            style={styles.dangerBtn}
-            onPress={isGroup ? confirmLeave : confirmBlock}
-          >
-            <Text style={styles.dangerText}>
-              {isGroup ? 'Leave group' : 'Block this number'}
-            </Text>
-          </TouchableOpacity>
+          {otherDeleted ? (
+            <TouchableOpacity style={styles.dangerBtn} onPress={leave}>
+              <Text style={styles.dangerText}>Remove chat</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.dangerBtn}
+              onPress={isGroup ? confirmLeave : confirmBlock}
+            >
+              <Text style={styles.dangerText}>
+                {isGroup ? 'Leave group' : 'Block this number'}
+              </Text>
+            </TouchableOpacity>
+          )}
         </ScrollView>
       )}
       </View>
@@ -658,6 +658,90 @@ export default function ContactProfile() {
         </View>
       </Modal>
 
+      <Modal
+        visible={menuVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setMenuVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setMenuVisible(false)}
+        >
+          <TouchableOpacity style={styles.menuSheet} activeOpacity={1} onPress={() => undefined}>
+            <Text style={styles.modalTitle}>{isGroup ? 'Group options' : 'Contact options'}</Text>
+            {isGroup && canManageGroup ? (
+              <>
+                <TouchableOpacity
+                  style={styles.menuRow}
+                  onPress={() => {
+                    setMenuVisible(false);
+                    setGroupName(displayName);
+                    setEditingName(true);
+                  }}
+                >
+                  <Ionicons name="create-outline" size={20} color={colors.forest} />
+                  <Text style={styles.menuRowText}>Edit group name</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.menuRow}
+                  onPress={() => {
+                    setMenuVisible(false);
+                    openAddMembers();
+                  }}
+                >
+                  <Ionicons name="person-add-outline" size={20} color={colors.forest} />
+                  <Text style={styles.menuRowText}>Add members</Text>
+                </TouchableOpacity>
+              </>
+            ) : null}
+            {isGroup ? (
+              <TouchableOpacity
+                style={styles.menuRow}
+                onPress={() => {
+                  setMenuVisible(false);
+                  confirmLeave();
+                }}
+              >
+                <Ionicons name="exit-outline" size={20} color={colors.danger} />
+                <Text style={[styles.menuRowText, { color: colors.danger }]}>Leave group</Text>
+              </TouchableOpacity>
+            ) : otherDeleted ? (
+              <TouchableOpacity
+                style={styles.menuRow}
+                onPress={() => {
+                  setMenuVisible(false);
+                  leave();
+                }}
+              >
+                <Ionicons name="trash-outline" size={20} color={colors.danger} />
+                <Text style={[styles.menuRowText, { color: colors.danger }]}>Remove chat</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.menuRow}
+                onPress={() => {
+                  setMenuVisible(false);
+                  confirmBlock();
+                }}
+              >
+                <Ionicons name="ban-outline" size={20} color={colors.danger} />
+                <Text style={[styles.menuRowText, { color: colors.danger }]}>Block this user</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={[styles.menuRow, { borderBottomWidth: 0 }]}
+              onPress={() => setMenuVisible(false)}
+            >
+              <Text style={[styles.menuRowText, { color: colors.textMuted, textAlign: 'center', width: '100%' }]}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       <StatusModal
         visible={statusModal.visible}
         type={statusModal.type}
@@ -685,7 +769,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerEdit: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  menuSheet: {
+    backgroundColor: colors.cream,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 28,
+  },
+  menuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E4E4DC',
+  },
+  menuRowText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.forest,
+  },
   sheet: {
     flex: 1,
     backgroundColor: colors.cream,

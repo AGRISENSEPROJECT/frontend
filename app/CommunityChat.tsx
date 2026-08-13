@@ -22,7 +22,7 @@ import { authApi, type CommunityAuthor } from '@/services/api';
 import { getCommunitySocket } from '@/services/communitySocket';
 import { colors, radius, space } from '@/constants/theme';
 import { ChatBubbleSkeleton } from '@/components/ui/Skeleton';
-import { userDisplayName } from '@/utils/userDisplay';
+import { isDeletedAccount, userDisplayName } from '@/utils/userDisplay';
 import { usePresence } from '@/context/PresenceContext';
 
 type Author = CommunityAuthor;
@@ -78,12 +78,16 @@ export default function CommunityChat() {
       ]);
       setMessages(data?.items || []);
       if (convo) {
-        setHeaderName(convo.name || contactName);
+        const peer = convo.otherMembers?.[0];
+        const gone = convo.type !== 'group' && isDeletedAccount(peer);
+        setHeaderName(gone ? 'Unavailable' : convo.name || contactName);
         setConversationType(convo.type === 'group' ? 'group' : 'direct');
         const avatar =
           convo.type === 'group'
             ? convo.imageUrl || null
-            : convo.otherMembers?.[0]?.profileImage || null;
+            : gone
+              ? null
+              : peer?.profileImage || null;
         setHeaderAvatar(avatar);
         if (Array.isArray(convo.members)) {
           setMembers(convo.members);

@@ -143,6 +143,8 @@ export type CommunityAuthor = {
     username?: string | null;
     displayName?: string | null;
     online?: boolean;
+    deleted?: boolean;
+    status?: string | null;
 };
 
 export const authApi = {

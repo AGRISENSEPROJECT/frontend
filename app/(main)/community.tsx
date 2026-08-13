@@ -31,7 +31,7 @@ import ConversationRow from '@/components/community/ConversationRow';
 import NotificationBell from '@/components/NotificationBell';
 import { colors, radius, shadow, space } from '@/constants/theme';
 import { usePresence } from '@/context/PresenceContext';
-import { formatPersonName, userDisplayName } from '@/utils/userDisplay';
+import { formatPersonName, isDeletedAccount, userDisplayName } from '@/utils/userDisplay';
 import type { CommunityAuthor } from '@/services/api';
 import {
   FeedPostSkeleton,
@@ -115,6 +115,7 @@ export default function Community() {
   const [sharePostTarget, setSharePostTarget] = useState<Post | null>(null);
   const [shareTargets, setShareTargets] = useState<Conversation[]>([]);
   const [shareBusy, setShareBusy] = useState(false);
+  const [feedMenuVisible, setFeedMenuVisible] = useState(false);
   const [posts, setPosts] = useState<Post[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [inboxUnread, setInboxUnread] = useState(0);
@@ -1120,8 +1121,9 @@ export default function Community() {
       })
     : posts;
 
+  const activeContacts = contacts.filter((u) => !isDeletedAccount(u));
   const visibleContacts = contactQuery.trim()
-    ? contacts.filter((u) => {
+    ? activeContacts.filter((u) => {
         const q = contactQuery.trim().toLowerCase();
         return (
           userDisplayName(u).toLowerCase().includes(q) ||
@@ -1129,7 +1131,16 @@ export default function Community() {
           (u.email || '').toLowerCase().includes(q)
         );
       })
-    : contacts;
+    : activeContacts;
+
+  const activeConversations = conversations.filter((c) => {
+    if (c.type === 'group') return true;
+    return !isDeletedAccount(c.otherMembers?.[0]) && !isDeletedAccount({ name: c.name });
+  });
+  const activeShareTargets = shareTargets.filter((c) => {
+    if (c.type === 'group') return true;
+    return !isDeletedAccount(c.otherMembers?.[0]) && !isDeletedAccount({ name: c.name });
+  });
 
   const groupedContacts = visibleContacts.reduce<Record<string, Author[]>>((acc, user) => {
     const letter = (userDisplayName(user)[0] || '#').toUpperCase();
@@ -1141,12 +1152,12 @@ export default function Community() {
 
   const searchNeedle = chatSearchQuery.trim().toLowerCase();
   const searchedConversations = searchNeedle
-    ? conversations.filter(
+    ? activeConversations.filter(
         (c) =>
           c.name.toLowerCase().includes(searchNeedle) ||
           (c.lastMessage?.content || '').toLowerCase().includes(searchNeedle),
       )
-    : conversations;
+    : activeConversations;
 
   return (
     <View style={styles.container}>
@@ -1163,9 +1174,9 @@ export default function Community() {
             </TouchableOpacity>
             <Text style={styles.feedTitle}>Farming Community</Text>
             <TouchableOpacity
-              onPress={openCreatePost}
+              onPress={() => setFeedMenuVisible(true)}
               style={styles.moreCircle}
-              accessibilityLabel="New post"
+              accessibilityLabel="More options"
               hitSlop={10}
             >
               <Ionicons name="ellipsis-horizontal" size={18} color="#111" />
@@ -1448,7 +1459,7 @@ export default function Community() {
         <ScrollView
           style={styles.postsList}
           contentContainerStyle={
-            conversations.length === 0 ? styles.conversationListEmpty : undefined
+            activeConversations.length === 0 ? styles.conversationListEmpty : undefined
           }
           refreshControl={
             <RefreshControl
@@ -1459,14 +1470,14 @@ export default function Community() {
             />
           }
         >
-          {conversationsLoading && conversations.length === 0 ? (
+          {conversationsLoading && activeConversations.length === 0 ? (
             <View>
               <ConversationSkeleton />
               <ConversationSkeleton />
               <ConversationSkeleton />
               <ConversationSkeleton />
             </View>
-          ) : conversations.length === 0 ? (
+          ) : activeConversations.length === 0 ? (
             <View style={styles.emptyState}>
               <View style={styles.emptyIconWrap}>
                 <Ionicons
@@ -1500,7 +1511,7 @@ export default function Community() {
             </View>
           ) : (
             <View style={styles.messageList}>
-              {conversations.map((item) => (
+              {activeConversations.map((item) => (
                 <ConversationRow
                   key={item.id}
                   item={item}
@@ -1623,7 +1634,6 @@ export default function Community() {
               color={colors.forest}
             />
           </TouchableOpacity>
-          <View style={styles.dockFabSpacer} />
           <TouchableOpacity
             style={styles.dockItem}
             onPress={() => setCommunityTab('Contacts')}
@@ -2080,6 +2090,39 @@ export default function Community() {
       </Modal>
 
       <Modal
+        visible={feedMenuVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setFeedMenuVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.manageOverlay}
+          activeOpacity={1}
+          onPress={() => setFeedMenuVisible(false)}
+        >
+          <TouchableOpacity style={styles.shareSheet} activeOpacity={1} onPress={() => undefined}>
+            <Text style={styles.manageTitle}>Community</Text>
+            <TouchableOpacity
+              style={styles.manageAction}
+              onPress={() => {
+                setFeedMenuVisible(false);
+                openCreatePost();
+              }}
+            >
+              <Ionicons name="camera-outline" size={20} color={colors.forest} />
+              <Text style={styles.manageActionText}>New post</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.manageAction, styles.manageCancel]}
+              onPress={() => setFeedMenuVisible(false)}
+            >
+              <Text style={styles.manageCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal
         visible={!!sharePostTarget}
         animationType="slide"
         transparent
@@ -2100,9 +2143,9 @@ export default function Community() {
               <ActivityIndicator color={colors.forest} style={{ marginVertical: 12 }} />
             ) : null}
 
-            {shareTargets.length > 0 ? (
+            {activeShareTargets.length > 0 ? (
               <ScrollView style={styles.shareChatList} keyboardShouldPersistTaps="handled">
-                {shareTargets.map((item) => (
+                {activeShareTargets.map((item) => (
                   <TouchableOpacity
                     key={item.id}
                     style={styles.shareChatRow}
@@ -2616,17 +2659,13 @@ const styles = StyleSheet.create({
   dockBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 28,
+    justifyContent: 'space-around',
+    paddingHorizontal: 8,
     minHeight: 48,
-    gap: 8,
-  },
-  dockFabSpacer: {
-    flex: 1,
   },
   dockItem: {
-    width: 44,
+    flex: 1,
     height: 44,
-    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
