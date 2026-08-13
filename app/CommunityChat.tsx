@@ -23,6 +23,7 @@ import { getCommunitySocket } from '@/services/communitySocket';
 import { colors, radius, space } from '@/constants/theme';
 import { ChatBubbleSkeleton } from '@/components/ui/Skeleton';
 import { userDisplayName } from '@/utils/userDisplay';
+import { usePresence } from '@/context/PresenceContext';
 
 type Author = CommunityAuthor;
 type ChatMessage = {
@@ -53,6 +54,7 @@ export default function CommunityChat() {
   const [members, setMembers] = useState<Author[]>([]);
   const [typingUsers, setTypingUsers] = useState<{ id: string; name: string }[]>([]);
   const insets = useSafeAreaInsets();
+  const { isOnline } = usePresence();
   const listRef = useRef<FlatList>(null);
   const sockRef = useRef<any>(null);
   const meIdRef = useRef<string | null>(null);
@@ -389,6 +391,10 @@ export default function CommunityChat() {
     });
   };
 
+  const peerId = members.find((m) => m.id && m.id !== me?.id)?.id;
+  const peerOnline =
+    conversationType === 'direct' && !!peerId && isOnline(peerId);
+
   return (
     <KeyboardAvoidingView
       style={styles.screen}
@@ -413,35 +419,44 @@ export default function CommunityChat() {
           activeOpacity={0.85}
           onPress={openInfo}
         >
-          {conversationType === 'group' && !headerAvatar ? (
-            <View style={[styles.headerAvatar, styles.headerGroupAvatar]}>
-              <Ionicons name="people" size={20} color={colors.brand} />
-            </View>
-          ) : (
-            <Image
-              source={
-                headerAvatar
-                  ? { uri: headerAvatar }
-                  : require('../assets/profile-pic.png')
-              }
-              style={styles.headerAvatar}
-            />
-          )}
+          <View style={styles.headerAvatarWrap}>
+            {conversationType === 'group' && !headerAvatar ? (
+              <View style={[styles.headerAvatar, styles.headerGroupAvatar]}>
+                <Ionicons name="people" size={20} color={colors.forest} />
+              </View>
+            ) : (
+              <Image
+                source={
+                  headerAvatar
+                    ? { uri: headerAvatar }
+                    : require('../assets/profile-pic.png')
+                }
+                style={styles.headerAvatar}
+              />
+            )}
+            {peerOnline ? <View style={styles.onlineDot} /> : null}
+          </View>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.headerName} numberOfLines={1}>
               {headerName}
             </Text>
             <Text style={[styles.headerSub, typingLabel ? styles.headerTyping : null]} numberOfLines={1}>
               {typingLabel ||
-                (conversationType === 'group' ? 'Tap for group info' : 'Tap for info')}
+                (conversationType === 'group'
+                  ? 'Tap for group info'
+                  : peerOnline
+                    ? 'Online'
+                    : 'Tap for info')}
             </Text>
           </View>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.headerIcon} onPress={openInfo} hitSlop={8}>
-          <Ionicons name="ellipsis-vertical" size={20} color={colors.textOnBrand} />
+          <Ionicons name="ellipsis-horizontal-circle-outline" size={24} color={colors.textOnBrand} />
         </TouchableOpacity>
       </View>
+
+      <View style={styles.threadSheet}>
 
       {loading ? (
         <View style={styles.loading}>
@@ -494,30 +509,31 @@ export default function CommunityChat() {
                       style={styles.bubbleAvatar}
                     />
                   )}
-                  <Pressable
-                    onLongPress={() => openMessageActions(item)}
-                    delayLongPress={280}
-                    style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}
-                  >
-                    {!mine && (
-                      <Text style={styles.senderName}>
-                        {userDisplayName(item.sender)}
-                      </Text>
-                    )}
-                    <Text
-                      style={[
-                        styles.bubbleText,
-                        mine && styles.bubbleTextMine,
-                        item.deletedAt && styles.bubbleDeleted,
-                      ]}
+                  <View style={[styles.bubbleCol, mine && styles.bubbleColMine]}>
+                    <Pressable
+                      onLongPress={() => openMessageActions(item)}
+                      delayLongPress={280}
+                      style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}
                     >
-                      {item.deletedAt ? 'This message was deleted' : item.content}
-                    </Text>
+                      {!mine && conversationType === 'group' ? (
+                        <Text style={styles.senderName}>
+                          {userDisplayName(item.sender)}
+                        </Text>
+                      ) : null}
+                      <Text
+                        style={[
+                          styles.bubbleText,
+                          item.deletedAt && styles.bubbleDeleted,
+                        ]}
+                      >
+                        {item.deletedAt ? 'This message was deleted' : item.content}
+                      </Text>
+                    </Pressable>
                     <Text style={[styles.bubbleTime, mine && styles.bubbleTimeMine]}>
                       {item.editedAt && !item.deletedAt ? 'edited · ' : ''}
                       {formatTime(item.createdAt)}
                     </Text>
-                  </Pressable>
+                  </View>
                 </View>
               </View>
             );
@@ -573,6 +589,7 @@ export default function CommunityChat() {
         </View>
       </View>
       </View>
+      </View>
     </KeyboardAvoidingView>
   );
 }
@@ -580,15 +597,15 @@ export default function CommunityChat() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#EFEAE2',
+    backgroundColor: colors.forest,
   },
   chatBody: {
     flex: 1,
   },
   header: {
-    backgroundColor: colors.brand,
+    backgroundColor: colors.forest,
     paddingHorizontal: space.md,
-    paddingBottom: space.md,
+    paddingBottom: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
@@ -607,6 +624,9 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 4,
   },
+  headerAvatarWrap: {
+    position: 'relative',
+  },
   headerAvatar: {
     width: 40,
     height: 40,
@@ -621,13 +641,24 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brandSoft,
     borderColor: 'rgba(255,255,255,0.5)',
   },
+  onlineDot: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    backgroundColor: '#22C55E',
+    borderWidth: 2,
+    borderColor: colors.forest,
+  },
   headerName: {
     color: colors.textOnBrand,
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   headerSub: {
-    color: 'rgba(255,255,255,0.7)',
+    color: 'rgba(255,255,255,0.75)',
     fontSize: 11,
     fontWeight: '600',
     marginTop: 1,
@@ -635,6 +666,13 @@ const styles = StyleSheet.create({
   headerTyping: {
     color: '#BBF7D0',
     fontStyle: 'italic',
+  },
+  threadSheet: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: 'hidden',
   },
   loading: {
     flex: 1,
@@ -668,7 +706,7 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: 'row',
-    marginBottom: 6,
+    marginBottom: 10,
     alignItems: 'flex-end',
     maxWidth: '100%',
   },
@@ -683,31 +721,36 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    marginBottom: 2,
+    marginBottom: 18,
+  },
+  bubbleCol: {
+    maxWidth: '78%',
+  },
+  bubbleColMine: {
+    alignItems: 'flex-end',
   },
   bubble: {
-    maxWidth: '78%',
-    borderRadius: 18,
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 6,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 10,
   },
   bubbleMine: {
-    backgroundColor: colors.brand,
-    borderBottomRightRadius: 5,
+    backgroundColor: colors.mint,
+    borderBottomRightRadius: 6,
   },
   bubbleTheirs: {
-    backgroundColor: colors.surface,
-    borderBottomLeftRadius: 5,
+    backgroundColor: '#EDEDED',
+    borderBottomLeftRadius: 6,
   },
   senderName: {
-    color: colors.brandMid,
+    color: colors.forest,
     fontSize: 11,
     fontWeight: '800',
     marginBottom: 2,
   },
   bubbleText: {
-    color: colors.text,
+    color: '#1A1A1A',
     fontSize: 15,
     lineHeight: 21,
     fontWeight: '500',
@@ -716,18 +759,15 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     opacity: 0.8,
   },
-  bubbleTextMine: {
-    color: colors.textOnBrand,
-  },
   bubbleTime: {
     color: colors.textMuted,
     fontSize: 10,
     fontWeight: '600',
     marginTop: 4,
-    alignSelf: 'flex-end',
+    alignSelf: 'flex-start',
   },
   bubbleTimeMine: {
-    color: 'rgba(255,255,255,0.72)',
+    alignSelf: 'flex-end',
   },
   emptyChat: {
     alignItems: 'center',
@@ -757,9 +797,9 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   composer: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.cream,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
+    borderTopColor: '#E5E5DC',
     paddingHorizontal: space.md,
     paddingTop: space.sm,
   },
@@ -810,7 +850,7 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: colors.brand,
+    backgroundColor: colors.forest,
     alignItems: 'center',
     justifyContent: 'center',
   },

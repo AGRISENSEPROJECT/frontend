@@ -10,6 +10,10 @@ export const colors = {
   brandMuted: '#BBF7D0',
 
   bg: '#F4F7F2',
+  cream: '#FCFDF5',
+  forest: '#34643F',
+  mint: '#D8EDE3',
+  searchFill: '#E4E5D8',
   surface: '#FFFFFF',
   surfaceMuted: '#F8FAF8',
 

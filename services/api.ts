@@ -138,6 +138,7 @@ export type CommunityAuthor = {
     firstName?: string | null;
     lastName?: string | null;
     email?: string | null;
+    phoneNumber?: string | null;
     profileImage?: string | null;
     username?: string | null;
     displayName?: string | null;

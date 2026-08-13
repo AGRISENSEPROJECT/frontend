@@ -8,19 +8,52 @@ export type DisplayableUser = {
   email?: string | null;
 };
 
+function looksLikeEmail(value?: string | null) {
+  return !!value && /@/.test(value);
+}
+
+function stripEmail(value: string) {
+  return value.replace(/\S+@\S+/g, '').replace(/\s+/g, ' ').trim();
+}
+
 export function userDisplayName(
   user?: DisplayableUser | null,
   opts?: { preferNames?: boolean },
 ): string {
   if (!user) return 'Farmer';
-  const fromNames = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
-  // After a settings edit, first/last are the source of truth — ignore stale displayName/username.
-  if (opts?.preferNames && fromNames) return fromNames;
-  if (user.displayName?.trim()) return user.displayName.trim();
+  const fromNames = [user.firstName, user.lastName]
+    .filter((part) => part && !looksLikeEmail(part))
+    .join(' ')
+    .trim();
+  const display = user.displayName?.trim() || '';
+  const userName = user.username?.trim() || '';
+
+  // First/last are the source of truth — ignore stale or email-like displayName.
+  if (fromNames && (opts?.preferNames || !display || looksLikeEmail(display))) {
+    return fromNames;
+  }
   if (fromNames) return fromNames;
-  if (user.username?.trim()) return user.username.trim();
-  if (user.email?.trim()) return user.email.split('@')[0] || user.email;
+  if (display && !looksLikeEmail(display)) return display;
+  if (userName && !looksLikeEmail(userName)) return userName;
+  if (display) {
+    const cleaned = stripEmail(display);
+    if (cleaned) return cleaned;
+  }
+  if (user.email?.trim()) return user.email.split('@')[0] || 'Farmer';
   return 'Farmer';
+}
+
+/** Title-case ALL CAPS labels so feed names match the prototype (e.g. NIBISHAKA → Nibishaka). */
+export function formatPersonName(name: string): string {
+  const value = name.trim();
+  if (!value) return value;
+  const letters = value.replace(/[^A-Za-z]/g, '');
+  if (letters.length >= 2 && letters === letters.toUpperCase()) {
+    return value
+      .toLowerCase()
+      .replace(/(^|[\s'-])(\w)/g, (_, lead: string, char: string) => lead + char.toUpperCase());
+  }
+  return value;
 }
 
 export function isFarmerRole(role?: string | null): boolean {

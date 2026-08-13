@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, radius, space } from '@/constants/theme';
+import { colors, radius } from '@/constants/theme';
 import type { CommunityAuthor } from '@/services/api';
 
 type Author = CommunityAuthor;
@@ -42,14 +42,14 @@ export default function ConversationRow({
 
   return (
     <TouchableOpacity
-      style={[styles.row, unread && styles.rowUnread]}
+      style={styles.row}
       onPress={onPress}
       activeOpacity={0.75}
     >
       <View style={styles.avatarWrap}>
         {mode === 'Group' && !avatarUri ? (
           <View style={styles.groupAvatar}>
-            <Ionicons name="people" size={22} color={colors.brand} />
+            <Ionicons name="people" size={22} color={colors.forest} />
           </View>
         ) : (
           <Image source={avatar(avatarUri)} style={styles.avatar} />
@@ -63,7 +63,7 @@ export default function ConversationRow({
             {item.name}
           </Text>
           {item.lastMessage?.createdAt ? (
-            <Text style={[styles.time, unread && styles.timeUnread]}>
+            <Text style={styles.time}>
               {timeAgo(item.lastMessage.createdAt)}
             </Text>
           ) : null}
@@ -92,28 +92,23 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: space.lg,
+    paddingHorizontal: 20,
     paddingVertical: 14,
-    backgroundColor: colors.surface,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    backgroundColor: colors.cream,
     gap: 12,
-  },
-  rowUnread: {
-    backgroundColor: colors.brandWash,
   },
   avatarWrap: {
     position: 'relative',
   },
   avatar: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
   },
   groupAvatar: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: colors.brandSoft,
     alignItems: 'center',
     justifyContent: 'center',
@@ -127,7 +122,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: '#22C55E',
     borderWidth: 2,
-    borderColor: colors.surface,
+    borderColor: colors.cream,
   },
   body: {
     flex: 1,
@@ -138,25 +133,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
-    marginBottom: 3,
+    marginBottom: 4,
   },
   name: {
     flex: 1,
     fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
+    fontWeight: '700',
+    color: '#111',
   },
   nameUnread: {
     fontWeight: '800',
   },
   time: {
     fontSize: 12,
-    fontWeight: '600',
-    color: colors.textMuted,
-  },
-  timeUnread: {
-    color: colors.unread,
-    fontWeight: '800',
+    fontWeight: '500',
+    color: '#8A8A8A',
   },
   bottomLine: {
     flexDirection: 'row',
@@ -165,20 +156,20 @@ const styles = StyleSheet.create({
   },
   preview: {
     flex: 1,
-    fontSize: 14,
-    fontWeight: '500',
-    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '400',
+    color: '#4A4A4A',
   },
   previewUnread: {
-    color: colors.textSecondary,
-    fontWeight: '700',
+    color: '#222',
+    fontWeight: '600',
   },
   badge: {
-    minWidth: 22,
-    height: 22,
+    minWidth: 20,
+    height: 20,
     borderRadius: radius.full,
     paddingHorizontal: 6,
-    backgroundColor: colors.unread,
+    backgroundColor: colors.forest,
     alignItems: 'center',
     justifyContent: 'center',
   },

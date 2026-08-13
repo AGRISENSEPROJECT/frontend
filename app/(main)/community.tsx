@@ -13,6 +13,7 @@ import {
   Alert,
   Platform,
   Dimensions,
+  Share,
   NativeSyntheticEvent,
   NativeScrollEvent,
 } from 'react-native';
@@ -20,15 +21,17 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import * as Linking from 'expo-linking';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSidebar } from '../../context/SidebarContext';
 import { authApi } from '@/services/api';
 import { getCommunitySocket } from '@/services/communitySocket';
 import StatusModal from '@/components/ui/StatusModal';
 import ConversationRow from '@/components/community/ConversationRow';
+import NotificationBell from '@/components/NotificationBell';
 import { colors, radius, shadow, space } from '@/constants/theme';
 import { usePresence } from '@/context/PresenceContext';
-import { userDisplayName } from '@/utils/userDisplay';
+import { formatPersonName, userDisplayName } from '@/utils/userDisplay';
 import type { CommunityAuthor } from '@/services/api';
 import {
   FeedPostSkeleton,
@@ -38,10 +41,13 @@ import {
 const FEED_PAGE_SIZE = 8;
 const FEED_CARD_WIDTH = Dimensions.get('window').width - 32;
 
-const TAB_LABELS: Record<'Feed' | 'Inbox' | 'Group', string> = {
+type CommunityTab = 'Feed' | 'Inbox' | 'Group' | 'Contacts';
+
+const TAB_LABELS: Record<CommunityTab, string> = {
   Feed: 'Feed',
-  Inbox: 'Messages',
-  Group: 'Groups',
+  Inbox: 'Inbox',
+  Group: 'Group',
+  Contacts: 'Contact',
 };
 
 /** Farm-themed placeholders until a post has a real cover image */
@@ -76,6 +82,7 @@ type Post = {
   comments: { id: string; content: string; author?: Author | null; user?: Author | null; createdAt?: string }[];
   likeCount?: number;
   commentCount?: number;
+  shareCount?: number;
   likedByMe?: boolean;
   createdAt: string;
 };
@@ -98,7 +105,16 @@ export default function Community() {
   const { isOnline } = usePresence();
   const params = useLocalSearchParams<{ tab?: string; postId?: string }>();
 
-  const [communityTab, setCommunityTab] = useState<'Feed' | 'Inbox' | 'Group'>('Feed');
+  const [communityTab, setCommunityTab] = useState<CommunityTab>('Feed');
+  const [feedQuery, setFeedQuery] = useState('');
+  const [chatSearchOpen, setChatSearchOpen] = useState(false);
+  const [chatSearchQuery, setChatSearchQuery] = useState('');
+  const [contacts, setContacts] = useState<Author[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [contactQuery, setContactQuery] = useState('');
+  const [sharePostTarget, setSharePostTarget] = useState<Post | null>(null);
+  const [shareTargets, setShareTargets] = useState<Conversation[]>([]);
+  const [shareBusy, setShareBusy] = useState(false);
   const [posts, setPosts] = useState<Post[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [inboxUnread, setInboxUnread] = useState(0);
@@ -148,12 +164,29 @@ export default function Community() {
     const seconds = Math.floor((Date.now() - new Date(dateString).getTime()) / 1000);
     if (seconds < 60) return 'Just now';
     const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
+    if (minutes < 60) return minutes === 1 ? '1 min' : `${minutes} min`;
     const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
+    if (hours < 24) return hours === 1 ? '1 hour' : `${hours} hours`;
     const days = Math.floor(hours / 24);
-    if (days < 7) return `${days}d ago`;
-    return new Date(dateString).toLocaleDateString();
+    if (days < 7) return days === 1 ? '1 day' : `${days} days`;
+    const weeks = Math.floor(days / 7);
+    if (weeks < 5) return weeks === 1 ? '1 week' : `${weeks} weeks`;
+    const months = Math.floor(days / 30);
+    return months <= 1 ? '1 month' : `${months} months`;
+  };
+
+  const formatConversationTime = (dateString: string) => {
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return '';
+    const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (seconds < 60) return 'Just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes} min`;
+    const today = new Date();
+    if (date.toDateString() === today.toDateString()) {
+      return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).toLowerCase();
+    }
+    return timeAgo(dateString);
   };
 
   const normalizePosts = (payload: any): Post[] => {
@@ -162,14 +195,20 @@ export default function Community() {
       ...post,
       imageUrl: post.imageUrl || post.image_url || null,
       author: post.author || post.user || null,
-      likes: post.likes || [],
+      likes: (post.likes || post.likedBy || []).map((like: any) => ({
+        id: like.id || like.userId || like.user?.id,
+        user: like.user || like.author || (like.profileImage || like.firstName ? like : null),
+      })),
       comments: (post.comments || []).map((c: any) => ({
         ...c,
         author: c.author || c.user || null,
       })),
+      shareCount: Number(post.shareCount) || 0,
       likedByMe:
         post.likedByMe ??
-        (post.likes || []).some((like: any) => like.user?.id === userData?.id),
+        (post.likes || post.likedBy || []).some(
+          (like: any) => (like.user?.id || like.userId || like.id) === userData?.id,
+        ),
     }));
   };
 
@@ -281,6 +320,7 @@ export default function Community() {
   useEffect(() => {
     if (params.tab === 'messages') setCommunityTab('Inbox');
     if (params.tab === 'groups') setCommunityTab('Group');
+    if (params.tab === 'contacts') setCommunityTab('Contacts');
   }, [params.tab]);
 
   const openPostDetail = useCallback((post: Post) => {
@@ -322,17 +362,31 @@ export default function Community() {
     })();
   }, [fetchPosts, refreshUnreadBadges]);
 
+  const fetchContacts = useCallback(async (q?: string) => {
+    setContactsLoading(true);
+    try {
+      const users = await authApi.searchCommunityUsers(q);
+      setContacts(Array.isArray(users) ? users : []);
+    } catch {
+      setContacts([]);
+    } finally {
+      setContactsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (communityTab === 'Inbox') fetchConversations('direct');
     if (communityTab === 'Group') fetchConversations('group');
-  }, [communityTab, fetchConversations]);
+    if (communityTab === 'Contacts') fetchContacts();
+  }, [communityTab, fetchConversations, fetchContacts]);
 
   useFocusEffect(
     useCallback(() => {
       refreshUnreadBadges();
       if (communityTab === 'Inbox') fetchConversations('direct');
       if (communityTab === 'Group') fetchConversations('group');
-    }, [communityTab, fetchConversations, refreshUnreadBadges]),
+      if (communityTab === 'Contacts') fetchContacts();
+    }, [communityTab, fetchConversations, fetchContacts, refreshUnreadBadges]),
   );
 
   const refreshConversations = useCallback(async () => {
@@ -357,6 +411,139 @@ export default function Community() {
     }
     setNewChatVisible(true);
     searchUsers('');
+  };
+
+  const visiblePostTitle = (post: Post) => {
+    const title = post.title?.trim() || '';
+    if (!title) return null;
+    if (/^(post|untitled|new post)$/i.test(title)) return null;
+    if (title === (post.description || '').trim()) return null;
+    return title;
+  };
+
+  const sharePayload = (post: Post) => {
+    const title = visiblePostTitle(post);
+    const body = [title, post.description].filter(Boolean).join('\n\n');
+    const url = Linking.createURL('/(main)/community', {
+      queryParams: { postId: post.id },
+    });
+    return {
+      title: title || 'Farming Community',
+      text: body || 'Check this post on Agrisense',
+      url,
+      message: `${body || 'Check this post on Agrisense'}\n\n${url}`.trim(),
+    };
+  };
+
+  const bumpShareCount = (postId: string) => {
+    setPosts((prev) =>
+      prev.map((p) =>
+        p.id === postId ? { ...p, shareCount: (p.shareCount || 0) + 1 } : p,
+      ),
+    );
+    setSelectedPost((prev) =>
+      prev && prev.id === postId
+        ? { ...prev, shareCount: (prev.shareCount || 0) + 1 }
+        : prev,
+    );
+  };
+
+  const openShareSheet = async (post: Post) => {
+    setSharePostTarget(post);
+    try {
+      const [direct, group] = await Promise.all([
+        authApi.listConversations('direct'),
+        authApi.listConversations('group'),
+      ]);
+      const list = [
+        ...(Array.isArray(direct) ? direct : []),
+        ...(Array.isArray(group) ? group : []),
+      ];
+      setShareTargets(list.slice(0, 12));
+    } catch {
+      setShareTargets([]);
+    }
+  };
+
+  const shareViaSystem = async (post: Post) => {
+    const payload = sharePayload(post);
+    try {
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share({
+          title: payload.title,
+          text: payload.text,
+          url: payload.url,
+        });
+      } else {
+        await Share.share({
+          title: payload.title,
+          message: payload.message,
+          url: payload.url,
+        });
+      }
+      bumpShareCount(post.id);
+      setSharePostTarget(null);
+    } catch {
+      // cancelled
+    }
+  };
+
+  const copyShareLink = async (post: Post) => {
+    const payload = sharePayload(post);
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(payload.message);
+      } else {
+        await Share.share({ message: payload.message, title: payload.title });
+      }
+      bumpShareCount(post.id);
+      setSharePostTarget(null);
+      setStatusModal({
+        visible: true,
+        type: 'success',
+        title: 'Copied',
+        message: 'Post link copied. Paste it in a chat or message.',
+      });
+    } catch {
+      setStatusModal({
+        visible: true,
+        type: 'error',
+        title: 'Share failed',
+        message: 'Could not copy the post link.',
+      });
+    }
+  };
+
+  const shareToConversation = async (conversation: Conversation) => {
+    if (!sharePostTarget) return;
+    setShareBusy(true);
+    try {
+      const payload = sharePayload(sharePostTarget);
+      const author = userDisplayName(sharePostTarget.author);
+      await authApi.sendConversationMessage(
+        conversation.id,
+        `📢 ${author} shared a post\n${payload.message}`,
+      );
+      bumpShareCount(sharePostTarget.id);
+      setSharePostTarget(null);
+      router.push({
+        pathname: '/CommunityChat',
+        params: { id: conversation.id, name: conversation.name },
+      });
+    } catch (error: any) {
+      setStatusModal({
+        visible: true,
+        type: 'error',
+        title: 'Share failed',
+        message: error?.message || 'Could not send this post to the chat.',
+      });
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
+  const sharePost = (post: Post) => {
+    openShareSheet(post);
   };
 
   useEffect(() => {
@@ -477,15 +664,21 @@ export default function Community() {
     try {
       const result = await authApi.likePost(postId);
       setPosts((prev) =>
-        prev.map((p) =>
-          p.id === postId
-            ? {
-                ...p,
-                likedByMe: !!result.liked,
-                likeCount: result.likeCount ?? p.likeCount,
-              }
-            : p,
-        ),
+        prev.map((p) => {
+          if (p.id !== postId) return p;
+          const liked = !!result.liked;
+          const already = p.likes.some((like) => like.user?.id === userData?.id);
+          return {
+            ...p,
+            likedByMe: liked,
+            likeCount: result.likeCount ?? Math.max(0, (p.likeCount ?? p.likes.length) + (liked ? (already ? 0 : 1) : already ? -1 : 0)),
+            likes: liked
+              ? already
+                ? p.likes
+                : [...p.likes, { id: `me-${userData?.id}`, user: userData }]
+              : p.likes.filter((like) => like.user?.id !== userData?.id),
+          };
+        }),
       );
     } catch (error) {
       console.error('Error liking post:', error);
@@ -904,112 +1097,184 @@ export default function Community() {
   const avatar = (uri?: string | null) =>
     uri ? { uri } : require('../../assets/profile-pic.png');
 
-  const headerActionIcon =
-    communityTab === 'Feed'
-      ? 'camera-outline'
-      : communityTab === 'Group'
-        ? 'people-outline'
-        : 'create-outline';
+  const isFeed = communityTab === 'Feed';
+  const isContacts = communityTab === 'Contacts';
+  const messagesUnread = inboxUnread + groupUnread;
   const headerActionLabel =
     communityTab === 'Feed'
       ? 'New post'
       : communityTab === 'Group'
         ? 'New group'
-        : 'New message';
+        : communityTab === 'Contacts'
+          ? 'Add contact'
+          : 'New message';
+
+  const visiblePosts = feedQuery.trim()
+    ? posts.filter((p) => {
+        const q = feedQuery.trim().toLowerCase();
+        return (
+          (p.title || '').toLowerCase().includes(q) ||
+          (p.description || '').toLowerCase().includes(q) ||
+          userDisplayName(p.author).toLowerCase().includes(q)
+        );
+      })
+    : posts;
+
+  const visibleContacts = contactQuery.trim()
+    ? contacts.filter((u) => {
+        const q = contactQuery.trim().toLowerCase();
+        return (
+          userDisplayName(u).toLowerCase().includes(q) ||
+          (u.phoneNumber || '').toLowerCase().includes(q) ||
+          (u.email || '').toLowerCase().includes(q)
+        );
+      })
+    : contacts;
+
+  const groupedContacts = visibleContacts.reduce<Record<string, Author[]>>((acc, user) => {
+    const letter = (userDisplayName(user)[0] || '#').toUpperCase();
+    const key = /[A-Z]/.test(letter) ? letter : '#';
+    (acc[key] ||= []).push(user);
+    return acc;
+  }, {});
+  const contactSections = Object.keys(groupedContacts).sort();
+
+  const searchNeedle = chatSearchQuery.trim().toLowerCase();
+  const searchedConversations = searchNeedle
+    ? conversations.filter(
+        (c) =>
+          c.name.toLowerCase().includes(searchNeedle) ||
+          (c.lastMessage?.content || '').toLowerCase().includes(searchNeedle),
+      )
+    : conversations;
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 8) }]}>
-        <View style={styles.headerTop}>
-          <TouchableOpacity
-            onPress={toggleSidebar}
-            style={styles.headerIconBtn}
-            accessibilityLabel="Open menu"
-            hitSlop={10}
-          >
-            <Ionicons name="menu" size={24} color={colors.textOnBrand} />
-          </TouchableOpacity>
-          <View style={styles.headerTitleWrap}>
-            <Text style={styles.headerEyebrow}>Agrisense</Text>
-            <Text style={styles.headerTitle}>Community</Text>
+      {isFeed ? (
+        <View style={styles.headerLight}>
+          <View style={styles.headerTop}>
+            <TouchableOpacity
+              onPress={toggleSidebar}
+              style={styles.headerIconBtn}
+              accessibilityLabel="Open menu"
+              hitSlop={10}
+            >
+              <Ionicons name="menu" size={26} color="#111" />
+            </TouchableOpacity>
+            <Text style={styles.feedTitle}>Farming Community</Text>
+            <TouchableOpacity
+              onPress={openCreatePost}
+              style={styles.moreCircle}
+              accessibilityLabel="New post"
+              hitSlop={10}
+            >
+              <Ionicons name="ellipsis-horizontal" size={18} color="#111" />
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity
-            onPress={onHeaderPrimaryAction}
-            style={styles.headerIconBtn}
-            accessibilityLabel={headerActionLabel}
-            hitSlop={10}
-          >
-            <Ionicons name={headerActionIcon as any} size={22} color={colors.textOnBrand} />
-          </TouchableOpacity>
+          <View style={styles.searchBar}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search.."
+              placeholderTextColor="#8A8A8A"
+              value={feedQuery}
+              onChangeText={setFeedQuery}
+              returnKeyType="search"
+            />
+            <Ionicons name="search" size={18} color="#222" />
+          </View>
         </View>
-
-        <View style={styles.communityTabs}>
-          {(['Feed', 'Inbox', 'Group'] as const).map((tab) => {
-            const active = communityTab === tab;
-            const badge =
-              tab === 'Inbox' ? inboxUnread : tab === 'Group' ? groupUnread : 0;
-            return (
-              <TouchableOpacity
-                key={tab}
-                style={[styles.communityTab, active && styles.communityTabActive]}
-                onPress={() => setCommunityTab(tab)}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-                accessibilityLabel={
-                  badge > 0 ? `${TAB_LABELS[tab]}, ${badge} unread` : TAB_LABELS[tab]
-                }
-              >
-                <Text
-                  style={[
-                    styles.communityTabText,
-                    active && styles.communityTabTextActive,
-                  ]}
-                >
-                  {TAB_LABELS[tab]}
-                </Text>
-                {badge > 0 ? (
-                  <View style={[styles.tabBadge, active && styles.tabBadgeActive]}>
-                    <Text style={[styles.tabBadgeText, active && styles.tabBadgeTextActive]}>
-                      {badge > 99 ? '99+' : badge}
+      ) : isContacts ? (
+        <View style={styles.headerLight}>
+          <View style={styles.contactHeaderRow}>
+            <Text style={styles.contactTitle}>Contact</Text>
+            <TouchableOpacity
+              onPress={() => {
+                setNewChatVisible(true);
+                searchUsers('');
+              }}
+              hitSlop={8}
+              accessibilityLabel="Add contact"
+            >
+              <Text style={styles.addContactText}>Add contact</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.searchBar}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search name, phone number..."
+              placeholderTextColor="#8A8A8A"
+              value={contactQuery}
+              onChangeText={setContactQuery}
+              returnKeyType="search"
+            />
+            <Ionicons name="search" size={18} color="#222" />
+          </View>
+        </View>
+      ) : (
+        <View style={styles.headerLight}>
+          <View style={styles.headerTop}>
+            <TouchableOpacity
+              onPress={() => setCommunityTab('Feed')}
+              style={styles.headerIconBtn}
+              accessibilityLabel="Back to feed"
+              hitSlop={10}
+            >
+              <Ionicons name="arrow-back" size={24} color="#111" />
+            </TouchableOpacity>
+            <View style={styles.pillToggle}>
+              {(['Inbox', 'Group'] as const).map((tab) => {
+                const active = communityTab === tab;
+                const badge = tab === 'Inbox' ? inboxUnread : groupUnread;
+                return (
+                  <TouchableOpacity
+                    key={tab}
+                    style={[styles.pillOption, active && styles.pillOptionActive]}
+                    onPress={() => setCommunityTab(tab)}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: active }}
+                    accessibilityLabel={
+                      badge > 0 ? `${TAB_LABELS[tab]}, ${badge} unread` : TAB_LABELS[tab]
+                    }
+                  >
+                    <Text style={[styles.pillText, active && styles.pillTextActive]}>
+                      {TAB_LABELS[tab]}
                     </Text>
-                  </View>
-                ) : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <View style={styles.headerRightIcons}>
+              <TouchableOpacity
+                onPress={() => {
+                  setChatSearchOpen(true);
+                  setChatSearchQuery('');
+                  searchUsers('');
+                }}
+                style={styles.headerIconBtn}
+                accessibilityLabel="Search chats"
+                hitSlop={8}
+              >
+                <Ionicons name="search" size={22} color="#111" />
               </TouchableOpacity>
-            );
-          })}
+              <NotificationBell color="#111" size={22} />
+            </View>
+          </View>
         </View>
-      </View>
-
-      {communityTab === 'Feed' && (
-        <TouchableOpacity
-          style={styles.addPostCard}
-          onPress={openCreatePost}
-          activeOpacity={0.88}
-          accessibilityLabel="Create a new post"
-        >
-          <Image source={avatar(userData?.profileImage)} style={styles.composerAvatar} />
-          <View style={styles.composerPill}>
-            <Text style={styles.composerPlaceholder}>Share a photo from the farm…</Text>
-          </View>
-          <View style={styles.composerCamera}>
-            <Ionicons name="camera" size={18} color={colors.brandMid} />
-          </View>
-        </TouchableOpacity>
       )}
 
       {communityTab === 'Feed' && (
         <ScrollView
           ref={feedScrollRef}
           style={styles.postsList}
-          contentContainerStyle={{ paddingBottom: 28 }}
+          contentContainerStyle={{ paddingBottom: 12 }}
           onScroll={onFeedScroll}
           scrollEventThrottle={200}
           refreshControl={
             <RefreshControl
               refreshing={refreshing && posts.length > 0}
               onRefresh={() => fetchPosts({ reset: true })}
-              colors={[colors.brandMid]}
-              tintColor={colors.brandMid}
+              colors={[colors.forest]}
+              tintColor={colors.forest}
             />
           }
         >
@@ -1018,24 +1283,41 @@ export default function Community() {
               <FeedPostSkeleton />
               <FeedPostSkeleton />
             </View>
-          ) : posts.length === 0 ? (
+          ) : visiblePosts.length === 0 ? (
             <View style={styles.emptyState}>
               <View style={styles.emptyIconWrap}>
-                <Ionicons name="images-outline" size={36} color={colors.brandMid} />
+                <Ionicons name="images-outline" size={36} color={colors.forest} />
               </View>
-              <Text style={styles.emptyStateTitle}>Nothing here yet</Text>
+              <Text style={styles.emptyStateTitle}>
+                {feedQuery.trim() ? 'No matching posts' : 'Nothing here yet'}
+              </Text>
               <Text style={styles.emptyStateText}>
-                Share the first photo update from your farm.
+                {feedQuery.trim()
+                  ? 'Try a different search.'
+                  : 'Share the first photo update from your farm.'}
               </Text>
             </View>
           ) : (
-            posts.map((post) => {
+            visiblePosts.map((post) => {
               const liked =
                 post.likedByMe ||
                 post.likes.some((like) => like.user?.id === userData?.id);
               const isHighlighted = highlightPostId === post.id;
-              const hasRealImage = !!post.imageUrl;
               const isMine = post.author?.id === userData?.id;
+              const likeCount = post.likeCount ?? post.likes.length;
+              const commentCount = post.commentCount ?? post.comments.length;
+              const shareCount = post.shareCount || 0;
+              const captionTitle = visiblePostTitle(post);
+              const seenLikerIds = new Set<string>();
+              const uniqueLikers = post.likes
+                .map((like) => like.user)
+                .filter((u): u is Author => {
+                  if (!u?.id || seenLikerIds.has(u.id)) return false;
+                  seenLikerIds.add(u.id);
+                  return true;
+                });
+              const likerSlots = Math.min(3, Math.max(uniqueLikers.length, likeCount > 0 ? Math.min(likeCount, 3) : 0));
+              const likers = Array.from({ length: likerSlots }, (_, i) => uniqueLikers[i] || null);
               return (
                 <View
                   key={post.id}
@@ -1046,7 +1328,7 @@ export default function Community() {
                 >
                   <View style={styles.postHeader}>
                     <TouchableOpacity
-                      style={[styles.authorInfo, { flex: 1 }]}
+                      style={styles.authorInfo}
                       activeOpacity={0.85}
                       onPress={() => openPostDetail(post)}
                     >
@@ -1055,23 +1337,36 @@ export default function Community() {
                         style={styles.profilePic}
                       />
                       <View style={styles.authorMeta}>
-                        <Text style={styles.authorName}>
-                          {userDisplayName(post.author)}
+                        <Text style={styles.authorName} numberOfLines={1}>
+                          {formatPersonName(userDisplayName(post.author))}
                         </Text>
                         <Text style={styles.timeAgo}>{timeAgo(post.createdAt)}</Text>
                       </View>
                     </TouchableOpacity>
-                    {isMine ? (
-                      <TouchableOpacity
-                        hitSlop={14}
-                        onPress={() => setManagePost(post)}
-                        accessibilityLabel="Manage post"
-                        style={styles.moreBtn}
-                      >
-                        <Ionicons name="ellipsis-horizontal" size={20} color={colors.textSecondary} />
-                      </TouchableOpacity>
-                    ) : null}
+                    <TouchableOpacity
+                      hitSlop={14}
+                      onPress={() => (isMine ? setManagePost(post) : sharePost(post))}
+                      accessibilityLabel={isMine ? 'Manage post' : 'Share post'}
+                      style={styles.moreBtn}
+                    >
+                      <Ionicons name="ellipsis-horizontal" size={20} color={colors.forest} />
+                    </TouchableOpacity>
                   </View>
+
+                  <TouchableOpacity
+                    activeOpacity={0.9}
+                    onPress={() => openPostDetail(post)}
+                    style={styles.captionBlock}
+                  >
+                    {captionTitle ? (
+                      <Text style={styles.postTitle} numberOfLines={2}>
+                        {captionTitle}
+                      </Text>
+                    ) : null}
+                    <Text style={styles.postContent} numberOfLines={5}>
+                      {post.description || captionTitle}
+                    </Text>
+                  </TouchableOpacity>
 
                   <TouchableOpacity activeOpacity={0.95} onPress={() => openPostDetail(post)}>
                     <View style={styles.postCoverWrap}>
@@ -1080,14 +1375,29 @@ export default function Community() {
                         style={styles.postCover}
                         resizeMode="cover"
                       />
-                      {!hasRealImage && (
-                        <View style={styles.placeholderBadge}>
-                          <Ionicons name="image-outline" size={12} color="#fff" />
-                          <Text style={styles.placeholderBadgeText}>Preview</Text>
-                        </View>
-                      )}
                     </View>
                   </TouchableOpacity>
+
+                  <View style={styles.statsRow}>
+                    <View style={styles.likerCluster}>
+                      {likers.map((user, index) => (
+                        <Image
+                          key={user?.id || `liker-${index}`}
+                          source={avatar(user?.profileImage)}
+                          style={[
+                            styles.likerAvatar,
+                            { marginLeft: index === 0 ? 0 : -8, zIndex: 3 - index },
+                          ]}
+                        />
+                      ))}
+                      <Text style={styles.likeCountText}>{likeCount}</Text>
+                    </View>
+                    <Text style={styles.statMeta}>
+                      {commentCount} comment{commentCount === 1 ? '' : 's'}
+                      {'  •  '}
+                      {shareCount} share{shareCount === 1 ? '' : 's'}
+                    </Text>
+                  </View>
 
                   <View style={styles.actionButtons}>
                     <TouchableOpacity
@@ -1096,75 +1406,39 @@ export default function Community() {
                       accessibilityLabel={liked ? 'Unlike post' : 'Like post'}
                     >
                       <Ionicons
-                        name={liked ? 'heart' : 'heart-outline'}
-                        size={24}
-                        color={liked ? colors.danger : colors.text}
+                        name={liked ? 'thumbs-up' : 'thumbs-up-outline'}
+                        size={18}
+                        color={colors.forest}
                       />
-                      <Text style={[styles.actionText, liked && styles.actionTextLiked]}>
-                        {post.likeCount ?? post.likes.length}
-                      </Text>
+                      <Text style={styles.actionText}>like</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.actionButton}
                       onPress={() => openPostDetail(post)}
                       accessibilityLabel="View comments"
                     >
-                      <Ionicons name="chatbubble-outline" size={22} color={colors.text} />
-                      <Text style={styles.actionText}>
-                        {post.commentCount ?? post.comments.length}
-                      </Text>
+                      <Ionicons name="chatbox-outline" size={18} color={colors.forest} />
+                      <Text style={styles.actionText}>comment</Text>
                     </TouchableOpacity>
-                    {isMine ? (
-                      <TouchableOpacity
-                        style={styles.actionButton}
-                        onPress={() => setManagePost(post)}
-                        accessibilityLabel="Edit post"
-                      >
-                        <Ionicons name="create-outline" size={22} color={colors.brandMid} />
-                        <Text style={[styles.actionText, { color: colors.brandMid }]}>Edit</Text>
-                      </TouchableOpacity>
-                    ) : post.author?.id ? (
-                      <TouchableOpacity
-                        style={styles.actionButton}
-                        onPress={() => openDirectChat(post.author!.id)}
-                        accessibilityLabel="Message author"
-                      >
-                        <Ionicons name="paper-plane-outline" size={22} color={colors.text} />
-                        <Text style={styles.actionText}>Message</Text>
-                      </TouchableOpacity>
-                    ) : null}
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={() => sharePost(post)}
+                      accessibilityLabel="Share post"
+                    >
+                      <Ionicons name="arrow-redo-outline" size={18} color={colors.forest} />
+                      <Text style={styles.actionText}>share</Text>
+                    </TouchableOpacity>
                   </View>
-
-                  <TouchableOpacity
-                    activeOpacity={0.9}
-                    onPress={() => openPostDetail(post)}
-                    style={styles.captionBlock}
-                  >
-                    {!!post.title && (
-                      <Text style={styles.postTitle} numberOfLines={2}>
-                        {post.title}
-                      </Text>
-                    )}
-                    <Text style={styles.postContent} numberOfLines={3}>
-                      <Text style={styles.captionAuthor}>
-                        {userDisplayName(post.author)}{' '}
-                      </Text>
-                      {post.description}
-                    </Text>
-                    {(post.description?.length || 0) > 120 && (
-                      <Text style={styles.readMore}>Read more</Text>
-                    )}
-                  </TouchableOpacity>
                 </View>
               );
             })
           )}
           {loadingMore ? (
             <View style={{ paddingVertical: 18, alignItems: 'center' }}>
-              <ActivityIndicator color={colors.brandMid} />
+              <ActivityIndicator color={colors.forest} />
             </View>
           ) : null}
-          {!feedLoading && !loadingMore && posts.length > 0 && !hasMorePosts ? (
+          {!feedLoading && !loadingMore && visiblePosts.length > 0 && !hasMorePosts ? (
             <Text style={styles.endOfFeed}>You’re all caught up</Text>
           ) : null}
         </ScrollView>
@@ -1206,7 +1480,7 @@ export default function Community() {
               </Text>
               <Text style={styles.emptyStateText}>
                 {communityTab === 'Inbox'
-                  ? 'Start a chat with another farmer from the + button above.'
+                  ? 'Start a chat with another farmer from the + button below.'
                   : 'Create a group to coordinate with your community.'}
               </Text>
               <TouchableOpacity
@@ -1231,7 +1505,7 @@ export default function Community() {
                   key={item.id}
                   item={item}
                   mode={communityTab as 'Inbox' | 'Group'}
-                  timeAgo={timeAgo}
+                  timeAgo={formatConversationTime}
                   avatar={avatar}
                   online={
                     communityTab === 'Inbox'
@@ -1263,6 +1537,196 @@ export default function Community() {
           )}
         </ScrollView>
       )}
+
+      {communityTab === 'Contacts' && (
+        <ScrollView
+          style={styles.postsList}
+          contentContainerStyle={
+            visibleContacts.length === 0 ? styles.conversationListEmpty : { paddingBottom: 8 }
+          }
+          refreshControl={
+            <RefreshControl
+              refreshing={contactsLoading && contacts.length > 0}
+              onRefresh={() => fetchContacts()}
+              colors={[colors.forest]}
+              tintColor={colors.forest}
+            />
+          }
+        >
+          {contactsLoading && contacts.length === 0 ? (
+            <View>
+              <ConversationSkeleton />
+              <ConversationSkeleton />
+              <ConversationSkeleton />
+            </View>
+          ) : visibleContacts.length === 0 ? (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIconWrap}>
+                <Ionicons name="person-outline" size={36} color={colors.forest} />
+              </View>
+              <Text style={styles.emptyStateTitle}>
+                {contactQuery.trim() ? 'No contacts found' : 'No contacts yet'}
+              </Text>
+              <Text style={styles.emptyStateText}>
+                Add a farmer to start a conversation.
+              </Text>
+            </View>
+          ) : (
+            contactSections.map((letter) => (
+              <View key={letter}>
+                <Text style={styles.sectionLetter}>{letter}</Text>
+                {groupedContacts[letter].map((user) => (
+                  <TouchableOpacity
+                    key={user.id}
+                    style={styles.contactRow}
+                    onPress={() => openDirectChat(user.id)}
+                    activeOpacity={0.75}
+                  >
+                    <Image source={avatar(user.profileImage)} style={styles.contactAvatar} />
+                    <View style={styles.contactMeta}>
+                      <Text style={styles.contactName} numberOfLines={1}>
+                        {userDisplayName(user)}
+                      </Text>
+                      <Text style={styles.contactSub} numberOfLines={1}>
+                        {user.phoneNumber || user.email || 'Farmer'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ))
+          )}
+        </ScrollView>
+      )}
+
+      <View style={[styles.dock, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+        <View style={styles.fabWrap} pointerEvents="box-none">
+          <TouchableOpacity
+            style={styles.fab}
+            onPress={onHeaderPrimaryAction}
+            accessibilityLabel={headerActionLabel}
+            activeOpacity={0.88}
+          >
+            <Ionicons name="add" size={28} color="#fff" />
+          </TouchableOpacity>
+        </View>
+        <View style={styles.dockBar}>
+          <TouchableOpacity
+            style={styles.dockItem}
+            onPress={() => setCommunityTab('Feed')}
+            accessibilityLabel="Home feed"
+            accessibilityState={{ selected: isFeed }}
+          >
+            <Ionicons
+              name={isFeed ? 'home' : 'home-outline'}
+              size={24}
+              color={colors.forest}
+            />
+          </TouchableOpacity>
+          <View style={styles.dockFabSpacer} />
+          <TouchableOpacity
+            style={styles.dockItem}
+            onPress={() => setCommunityTab('Contacts')}
+            accessibilityLabel="Contacts"
+            accessibilityState={{ selected: isContacts }}
+          >
+            <Ionicons
+              name={isContacts ? 'person' : 'person-outline'}
+              size={24}
+              color={colors.forest}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.dockItem}
+            onPress={() =>
+              setCommunityTab(communityTab === 'Group' ? 'Group' : 'Inbox')
+            }
+            accessibilityLabel="Messages"
+            accessibilityState={{ selected: !isFeed && !isContacts }}
+          >
+            <View>
+              <Ionicons
+                name={!isFeed && !isContacts ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'}
+                size={24}
+                color={colors.forest}
+              />
+              {messagesUnread > 0 ? (
+                <View style={styles.dockBadge}>
+                  <Text style={styles.dockBadgeText}>
+                    {messagesUnread > 99 ? '99+' : messagesUnread}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <Modal visible={chatSearchOpen} animationType="fade" transparent>
+        <View style={styles.searchOverlay}>
+          <View style={styles.searchSheet}>
+            <View style={styles.searchBar}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search.."
+                placeholderTextColor="#8A8A8A"
+                value={chatSearchQuery}
+                onChangeText={(text) => {
+                  setChatSearchQuery(text);
+                  searchUsers(text);
+                }}
+                autoFocus
+                returnKeyType="search"
+              />
+              <Ionicons name="search" size={18} color="#222" />
+            </View>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              {searchedConversations.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.searchResultRow}
+                  onPress={() => {
+                    setChatSearchOpen(false);
+                    router.push({
+                      pathname: '/CommunityChat',
+                      params: { id: item.id, name: item.name },
+                    });
+                  }}
+                >
+                  <Ionicons name="search" size={16} color="#555" />
+                  <Text style={styles.searchResultText} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              {userResults.map((u) => (
+                <TouchableOpacity
+                  key={u.id}
+                  style={styles.searchResultRow}
+                  onPress={() => {
+                    setChatSearchOpen(false);
+                    openDirectChat(u.id);
+                  }}
+                >
+                  <Ionicons name="search" size={16} color="#555" />
+                  <Text style={styles.searchResultText} numberOfLines={1}>
+                    {userDisplayName(u)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              {searchedConversations.length === 0 && userResults.length === 0 ? (
+                <Text style={styles.searchEmpty}>No matches</Text>
+              ) : null}
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.searchClose}
+              onPress={() => setChatSearchOpen(false)}
+            >
+              <Text style={styles.searchCloseText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Create post */}
       <Modal visible={createModalVisible} animationType="slide" transparent>
@@ -1381,8 +1845,8 @@ export default function Community() {
                     style={styles.postDetailCover}
                     resizeMode="cover"
                   />
-                  {!!selectedPost.title && (
-                    <Text style={styles.postDetailTitle}>{selectedPost.title}</Text>
+                  {!!visiblePostTitle(selectedPost) && (
+                    <Text style={styles.postDetailTitle}>{visiblePostTitle(selectedPost)}</Text>
                   )}
                   <Text style={styles.postDetailText}>{selectedPost.description}</Text>
                   <View style={styles.engagementStats}>
@@ -1391,6 +1855,8 @@ export default function Community() {
                     </Text>
                     <Text style={styles.statText}>
                       {selectedPost.commentCount ?? selectedPost.comments.length} Comments
+                      {'  •  '}
+                      {selectedPost.shareCount || 0} Shares
                     </Text>
                   </View>
                 </View>
@@ -1613,6 +2079,84 @@ export default function Community() {
         </TouchableOpacity>
       </Modal>
 
+      <Modal
+        visible={!!sharePostTarget}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setSharePostTarget(null)}
+      >
+        <TouchableOpacity
+          style={styles.manageOverlay}
+          activeOpacity={1}
+          onPress={() => setSharePostTarget(null)}
+        >
+          <TouchableOpacity style={styles.shareSheet} activeOpacity={1} onPress={() => undefined}>
+            <Text style={styles.manageTitle}>Share post</Text>
+            <Text style={styles.shareHint} numberOfLines={2}>
+              Send it to a farmer, copy the link, or share outside Agrisense.
+            </Text>
+
+            {shareBusy ? (
+              <ActivityIndicator color={colors.forest} style={{ marginVertical: 12 }} />
+            ) : null}
+
+            {shareTargets.length > 0 ? (
+              <ScrollView style={styles.shareChatList} keyboardShouldPersistTaps="handled">
+                {shareTargets.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.shareChatRow}
+                    disabled={shareBusy}
+                    onPress={() => shareToConversation(item)}
+                  >
+                    <Image
+                      source={avatar(
+                        item.type === 'group'
+                          ? item.imageUrl
+                          : item.otherMembers?.[0]?.profileImage,
+                      )}
+                      style={styles.shareChatAvatar}
+                    />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.shareChatName} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <Text style={styles.shareChatMeta} numberOfLines={1}>
+                        {item.type === 'group' ? 'Group' : 'Inbox'}
+                      </Text>
+                    </View>
+                    <Ionicons name="send-outline" size={18} color={colors.forest} />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            ) : (
+              <Text style={styles.shareEmpty}>No chats yet — copy the link or share another way.</Text>
+            )}
+
+            <TouchableOpacity
+              style={styles.manageAction}
+              onPress={() => sharePostTarget && copyShareLink(sharePostTarget)}
+            >
+              <Ionicons name="copy-outline" size={20} color={colors.forest} />
+              <Text style={styles.manageActionText}>Copy link</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.manageAction}
+              onPress={() => sharePostTarget && shareViaSystem(sharePostTarget)}
+            >
+              <Ionicons name="share-outline" size={20} color={colors.forest} />
+              <Text style={styles.manageActionText}>Share via…</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.manageAction, styles.manageCancel]}
+              onPress={() => setSharePostTarget(null)}
+            >
+              <Text style={styles.manageCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       <StatusModal
         visible={statusModal.visible}
         type={statusModal.type}
@@ -1625,19 +2169,17 @@ export default function Community() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-  header: {
-    backgroundColor: colors.brand,
-    paddingBottom: 14,
-    borderBottomLeftRadius: 22,
-    borderBottomRightRadius: 22,
+  container: { flex: 1, backgroundColor: colors.cream },
+  headerLight: {
+    backgroundColor: colors.cream,
+    paddingBottom: 8,
   },
   headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: space.lg,
-    paddingVertical: 10,
+    paddingVertical: 6,
   },
   headerIconBtn: {
     width: 40,
@@ -1645,153 +2187,138 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.12)',
   },
-  headerTitleWrap: {
-    alignItems: 'center',
+  feedTitle: {
     flex: 1,
-  },
-  headerEyebrow: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.7)',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-  },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: colors.textOnBrand },
-  communityTabs: {
-    flexDirection: 'row',
-    paddingHorizontal: space.lg,
-    paddingTop: 6,
-    gap: 8,
-  },
-  communityTab: {
-    flex: 1,
-    flexDirection: 'row',
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    borderRadius: radius.full,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-  },
-  communityTabActive: { backgroundColor: '#fff' },
-  communityTabText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.88)',
-  },
-  communityTabTextActive: { color: colors.brand },
-  tabBadge: {
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    paddingHorizontal: 5,
-    backgroundColor: colors.unread,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabBadgeActive: {
-    backgroundColor: colors.brand,
-  },
-  tabBadgeText: {
-    color: '#fff',
-    fontSize: 10,
+    textAlign: 'center',
+    fontSize: 20,
     fontWeight: '800',
+    color: '#111',
   },
-  tabBadgeTextActive: {
-    color: '#fff',
+  moreCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1.5,
+    borderColor: '#111',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  addPostCard: {
+  searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.searchFill,
     marginHorizontal: space.lg,
-    marginTop: 14,
-    marginBottom: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: radius.lg,
+    marginTop: 6,
+    marginBottom: 8,
+    borderRadius: radius.full,
+    paddingHorizontal: 16,
+    minHeight: 44,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
+    borderColor: '#D0D0C4',
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#222',
+    paddingVertical: 10,
+  },
+  contactHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: space.lg,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  contactTitle: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#111',
+  },
+  addContactText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.forest,
+  },
+  pillToggle: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: radius.full,
+    padding: 4,
     ...shadow.card,
   },
-  composerAvatar: { width: 40, height: 40, borderRadius: 20 },
-  composerPill: {
-    flex: 1,
-    backgroundColor: colors.surfaceMuted,
+  pillOption: {
+    minWidth: 78,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
     borderRadius: radius.full,
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-  },
-  composerPlaceholder: { color: colors.textMuted, fontSize: 14, fontWeight: '500' },
-  composerCamera: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.brandSoft,
     alignItems: 'center',
-    justifyContent: 'center',
+  },
+  pillOptionActive: {
+    backgroundColor: colors.forest,
+  },
+  pillText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111',
+  },
+  pillTextActive: {
+    color: '#fff',
+  },
+  headerRightIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   postsList: { flex: 1 },
   conversationListEmpty: { flexGrow: 1 },
   postCard: {
-    backgroundColor: colors.surface,
-    marginHorizontal: space.lg,
-    marginTop: 12,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    overflow: 'hidden',
-    ...shadow.card,
+    backgroundColor: colors.cream,
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 8,
   },
   postCardHighlight: {
-    borderColor: colors.brandMuted,
     backgroundColor: colors.brandWash,
   },
   postHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    minHeight: 48,
   },
-  authorInfo: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  authorMeta: { gap: 2 },
-  profilePic: { width: 40, height: 40, borderRadius: 20 },
-  authorName: { fontWeight: '700', fontSize: 15, color: colors.text },
-  timeAgo: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
+  authorInfo: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 },
+  authorMeta: { flex: 1, minWidth: 0, justifyContent: 'center' },
+  profilePic: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#E8E8DC' },
+  authorName: { fontWeight: '700', fontSize: 16, color: colors.forest, letterSpacing: 0.1 },
+  timeAgo: { color: '#2A2A2A', fontSize: 13, fontWeight: '400', marginTop: 2 },
   moreBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+    marginLeft: 8,
   },
   postContent: {
     fontSize: 14,
     lineHeight: 21,
-    color: colors.text,
+    color: '#222',
   },
   captionBlock: {
-    paddingHorizontal: 14,
-    paddingBottom: 14,
-    paddingTop: 2,
-  },
-  captionAuthor: {
-    fontWeight: '800',
-    color: colors.text,
+    paddingTop: 8,
+    paddingBottom: 10,
   },
   postCoverWrap: {
     width: '100%',
+    borderRadius: 18,
+    overflow: 'hidden',
     backgroundColor: colors.border,
     position: 'relative',
   },
   postCover: {
     width: '100%',
-    height: FEED_CARD_WIDTH * 1.15,
+    height: FEED_CARD_WIDTH * 0.72,
     backgroundColor: colors.border,
   },
   placeholderBadge: {
@@ -1925,6 +2452,42 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     width: '100%',
   },
+  shareSheet: {
+    backgroundColor: colors.cream,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 28,
+    maxHeight: '78%',
+  },
+  shareHint: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '500',
+    marginBottom: 10,
+  },
+  shareChatList: {
+    maxHeight: 220,
+    marginBottom: 8,
+  },
+  shareChatRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E4E4DC',
+  },
+  shareChatAvatar: { width: 40, height: 40, borderRadius: 20 },
+  shareChatName: { fontSize: 15, fontWeight: '700', color: '#111' },
+  shareChatMeta: { fontSize: 12, fontWeight: '500', color: '#777', marginTop: 1 },
+  shareEmpty: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '500',
+    paddingVertical: 12,
+  },
   readMore: {
     marginTop: 4,
     color: colors.brandMid,
@@ -1959,22 +2522,168 @@ const styles = StyleSheet.create({
     borderTopColor: '#f0f0f0',
   },
   statText: { color: '#666', fontSize: 13 },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
+  likerCluster: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  likerAvatar: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: colors.cream,
+  },
+  likeCountText: {
+    marginLeft: 8,
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.forest,
+  },
+  statMeta: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.forest,
+  },
   actionButtons: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 18,
-    paddingHorizontal: 14,
-    paddingTop: 12,
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+    paddingTop: 10,
+    paddingBottom: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderColor: '#D8D8D0',
+  },
+  actionButton: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 36 },
+  actionText: { color: colors.forest, fontSize: 14, fontWeight: '600' },
+  actionTextActive: { color: colors.forest, fontWeight: '700' },
+  messageList: {
+    backgroundColor: colors.cream,
     paddingBottom: 8,
   },
-  actionButton: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  actionText: { color: colors.textSecondary, fontSize: 13, fontWeight: '700' },
-  actionTextActive: { color: colors.brandMid, fontWeight: '700' },
-  actionTextLiked: { color: colors.danger, fontWeight: '800' },
-  messageList: {
-    backgroundColor: colors.surface,
-    marginTop: 8,
-    paddingBottom: 24,
+  sectionLetter: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#111',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  contactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E4E4DC',
+  },
+  contactAvatar: { width: 48, height: 48, borderRadius: 24 },
+  contactMeta: { flex: 1, minWidth: 0 },
+  contactName: { fontSize: 16, fontWeight: '700', color: '#111' },
+  contactSub: { fontSize: 13, fontWeight: '500', color: '#666', marginTop: 2 },
+  dock: {
+    backgroundColor: colors.cream,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#D8D8D0',
+    paddingTop: 22,
+    position: 'relative',
+  },
+  fabWrap: {
+    position: 'absolute',
+    top: -22,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  fab: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: colors.forest,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow.float,
+  },
+  dockBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 28,
+    minHeight: 48,
+    gap: 8,
+  },
+  dockFabSpacer: {
+    flex: 1,
+  },
+  dockItem: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dockBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -8,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dockBadgeText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  searchOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    paddingTop: 72,
+    paddingHorizontal: 16,
+  },
+  searchSheet: {
+    backgroundColor: colors.searchFill,
+    borderRadius: 22,
+    padding: 14,
+    maxHeight: '72%',
+  },
+  searchResultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+  },
+  searchResultText: {
+    flex: 1,
+    fontSize: 15,
+    color: '#222',
+    fontWeight: '500',
+  },
+  searchEmpty: {
+    textAlign: 'center',
+    color: '#777',
+    paddingVertical: 20,
+    fontWeight: '600',
+  },
+  searchClose: {
+    alignSelf: 'center',
+    paddingTop: 8,
+  },
+  searchCloseText: {
+    color: colors.forest,
+    fontWeight: '800',
   },
   emptyState: {
     alignItems: 'center',
@@ -1986,7 +2695,7 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: colors.brandSoft,
+    backgroundColor: colors.mint,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
@@ -2009,7 +2718,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: colors.brandMid,
+    backgroundColor: colors.forest,
     paddingHorizontal: 18,
     paddingVertical: 12,
     borderRadius: radius.full,

@@ -365,9 +365,12 @@ export default function ContactProfile() {
     );
   };
 
+  const phoneLabel = other?.phoneNumber || null;
+  const emailLabel = other?.email || null;
+
   return (
-    <View style={[styles.screen, { paddingTop: Math.max(insets.top, 8) }]}>
-      <View style={styles.header}>
+    <View style={styles.screen}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
         <TouchableOpacity
           onPress={() => router.back()}
           style={styles.headerBtn}
@@ -376,14 +379,25 @@ export default function ContactProfile() {
         >
           <Ionicons name="arrow-back" size={22} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>
-          {isGroup ? 'Group info' : 'Contact info'}
-        </Text>
-        <View style={styles.headerBtn} />
+        {canManageGroup ? (
+          <TouchableOpacity
+            onPress={() => {
+              setGroupName(displayName);
+              setEditingName(true);
+            }}
+            hitSlop={8}
+            accessibilityLabel="Edit group"
+          >
+            <Text style={styles.headerEdit}>Edit contact</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.headerBtn} />
+        )}
       </View>
 
+      <View style={styles.sheet}>
       {loading ? (
-        <View style={[styles.content, { paddingTop: 8 }]}>
+        <View style={{ paddingTop: 72, paddingHorizontal: 20 }}>
           <ProfileSkeleton />
         </View>
       ) : !conversationId ? (
@@ -395,9 +409,10 @@ export default function ContactProfile() {
         </View>
       ) : (
         <ScrollView
+          style={{ flex: 1 }}
           contentContainerStyle={[
             styles.content,
-            { paddingBottom: Math.max(insets.bottom, 28) },
+            { flexGrow: 1, paddingBottom: Math.max(insets.bottom, 36) },
           ]}
           keyboardShouldPersistTaps="handled"
         >
@@ -406,8 +421,17 @@ export default function ContactProfile() {
               disabled={!canManageGroup || uploadingPhoto}
               onPress={pickGroupImage}
               activeOpacity={canManageGroup ? 0.85 : 1}
+              style={styles.avatarWrap}
             >
-              <Image source={avatarSource} style={styles.avatar} />
+              {avatarUri ? (
+                <Image source={{ uri: avatarUri }} style={styles.avatar} />
+              ) : isGroup ? (
+                <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                  <Ionicons name="people" size={44} color={colors.forest} />
+                </View>
+              ) : (
+                <Image source={avatarSource} style={styles.avatar} />
+              )}
               {uploadingPhoto ? (
                 <View style={styles.avatarOverlay}>
                   <ActivityIndicator color="#fff" />
@@ -443,49 +467,53 @@ export default function ContactProfile() {
                 </TouchableOpacity>
               </View>
             ) : (
-              <View style={styles.nameRow}>
+              <>
                 <Text style={styles.displayName}>{displayName}</Text>
-                {canManageGroup ? (
-                  <TouchableOpacity
-                    onPress={() => {
-                      setGroupName(displayName);
-                      setEditingName(true);
-                    }}
-                    hitSlop={10}
-                    accessibilityLabel="Edit group name"
-                  >
-                    <Ionicons name="create-outline" size={20} color={colors.brandMid} />
-                  </TouchableOpacity>
+                {isGroup ? (
+                  <Text style={styles.memberCount}>
+                    {conversation?.members?.length || 0} members
+                  </Text>
                 ) : null}
-              </View>
+              </>
             )}
-
-            <Text style={styles.subtitle}>
-              {isGroup
-                ? `${conversation?.members?.length || 0} members`
-                : other?.email || 'Agrisense farmer'}
-            </Text>
           </View>
 
-          <TouchableOpacity
-            style={styles.primaryAction}
-            onPress={() => router.back()}
-            activeOpacity={0.88}
-          >
-            <Ionicons name="chatbubble" size={18} color="#fff" />
-            <Text style={styles.primaryActionText}>Message</Text>
-          </TouchableOpacity>
+          <View style={styles.actionRow}>
+            <TouchableOpacity
+              style={styles.actionTile}
+              onPress={() => router.back()}
+              activeOpacity={0.88}
+            >
+              <Ionicons name="chatbubble-outline" size={22} color="#333" />
+              <Text style={styles.actionTileText}>Message</Text>
+            </TouchableOpacity>
+            {isGroup && canManageGroup ? (
+              <TouchableOpacity
+                style={styles.actionTile}
+                onPress={openAddMembers}
+                activeOpacity={0.88}
+              >
+                <Ionicons name="person-add-outline" size={22} color="#333" />
+                <Text style={styles.actionTileText}>Add</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
 
           {!isGroup && other ? (
-            <View style={styles.card}>
-              <Text style={styles.cardLabel}>Name</Text>
-              <Text style={styles.cardValue}>{userDisplayName(other)}</Text>
-              {other.email ? (
-                <>
-                  <Text style={[styles.cardLabel, { marginTop: 12 }]}>Email</Text>
-                  <Text style={styles.cardValue}>{other.email}</Text>
-                </>
-              ) : null}
+            <View style={styles.infoCard}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.infoTitle}>
+                  {phoneLabel ? 'Mobile' : emailLabel ? 'Email' : 'Farmer'}
+                </Text>
+                <Text style={styles.infoValue}>
+                  {phoneLabel || emailLabel || userDisplayName(other)}
+                </Text>
+              </View>
+              <Ionicons
+                name={phoneLabel ? 'call-outline' : 'mail-outline'}
+                size={20}
+                color="#333"
+              />
             </View>
           ) : null}
 
@@ -543,17 +571,13 @@ export default function ContactProfile() {
             style={styles.dangerBtn}
             onPress={isGroup ? confirmLeave : confirmBlock}
           >
-            <Ionicons
-              name={isGroup ? 'exit-outline' : 'ban-outline'}
-              size={18}
-              color={colors.danger}
-            />
             <Text style={styles.dangerText}>
-              {isGroup ? 'Leave group' : 'Block user'}
+              {isGroup ? 'Leave group' : 'Block this number'}
             </Text>
           </TouchableOpacity>
         </ScrollView>
       )}
+      </View>
 
       <Modal visible={addMembersVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
@@ -646,11 +670,11 @@ export default function ContactProfile() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
+  screen: { flex: 1, backgroundColor: colors.forest },
   header: {
-    backgroundColor: colors.brand,
+    backgroundColor: colors.forest,
     paddingHorizontal: space.md,
-    paddingBottom: 14,
+    paddingBottom: 52,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -661,16 +685,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: { color: '#fff', fontSize: 17, fontWeight: '800' },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  headerEdit: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  sheet: {
+    flex: 1,
+    backgroundColor: colors.cream,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    marginTop: -36,
+    overflow: 'hidden',
+  },
+  centered: { alignItems: 'center', justifyContent: 'center', padding: 24 },
   emptyText: { color: colors.textMuted, fontWeight: '600', marginBottom: 16 },
-  content: { paddingHorizontal: space.lg, paddingTop: space.xl },
-  hero: { alignItems: 'center', marginBottom: space.xl },
+  content: { paddingHorizontal: space.lg, paddingTop: 0 },
+  hero: { alignItems: 'center', marginBottom: space.lg },
+  avatarWrap: {
+    marginTop: -52,
+  },
   avatar: {
     width: 112,
     height: 112,
     borderRadius: 56,
-    backgroundColor: colors.border,
+    backgroundColor: colors.mint,
+    borderWidth: 4,
+    borderColor: '#fff',
+  },
+  avatarPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  memberCount: {
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textMuted,
   },
   avatarOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -698,18 +745,56 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#fff',
   },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  displayName: {
     marginTop: 14,
+    fontSize: 22,
+    fontWeight: '800',
+    color: colors.text,
+    textAlign: 'center',
   },
-  displayName: { fontSize: 22, fontWeight: '800', color: colors.text },
-  subtitle: {
-    marginTop: 4,
+  actionRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: space.lg,
+  },
+  actionTile: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#D4D4D4',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+    gap: 6,
+    ...shadow.card,
+  },
+  actionTileText: {
     fontSize: 13,
     fontWeight: '600',
-    color: colors.textMuted,
+    color: '#333',
+  },
+  infoCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#D4D4D4',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: space.md,
+    ...shadow.card,
+  },
+  infoTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#111',
+  },
+  infoValue: {
+    marginTop: 4,
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#444',
   },
   renameRow: {
     flexDirection: 'row',
@@ -752,12 +837,12 @@ const styles = StyleSheet.create({
   },
   primaryActionText: { color: '#fff', fontWeight: '800', fontSize: 15 },
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
+    backgroundColor: '#fff',
+    borderRadius: 14,
     padding: space.lg,
     marginBottom: space.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
+    borderWidth: 1,
+    borderColor: '#D4D4D4',
     ...shadow.card,
   },
   cardLabel: {
@@ -863,11 +948,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   dangerBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
     paddingVertical: 16,
     marginTop: 8,
   },
-  dangerText: { color: colors.danger, fontWeight: '800', fontSize: 15 },
+  dangerText: { color: colors.danger, fontWeight: '700', fontSize: 15 },
 });
